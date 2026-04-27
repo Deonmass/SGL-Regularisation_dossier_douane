@@ -167,27 +167,6 @@ function AppContent() {
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
         {/* Supabase Status Indicator */}
-        <div className="fixed top-2 right-2 z-50">
-          {supabaseStatus === 'loading' && (
-            <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
-              Test connexion Supabase...
-            </div>
-          )}
-          {supabaseStatus === 'connected' && (
-            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-              <span className="w-3 h-3 bg-green-500 rounded-full"></span>
-              Supabase connecté
-            </div>
-          )}
-          {supabaseStatus === 'error' && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
-              <span className="w-3 h-3 bg-red-500 rounded-full"></span>
-              Erreur connexion Supabase
-            </div>
-          )}
-        </div>
-
         {renderPage()}
       </div>
 
