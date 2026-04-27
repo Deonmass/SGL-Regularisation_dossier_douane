@@ -318,7 +318,7 @@ function Dashboard({ }: DashboardProps) {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 py-3">
           <div className="flex justify-between items-center">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
@@ -337,7 +337,7 @@ function Dashboard({ }: DashboardProps) {
 
       {/* Tabs */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6">
           <div className="flex space-x-8">
             <button
               onClick={() => handleTabChange('ouest')}
@@ -374,15 +374,15 @@ function Dashboard({ }: DashboardProps) {
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-sm p-6">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 py-4">
+        <div className="bg-white rounded-lg shadow-sm p-3">
           <h3 className="text-lg font-semibold text-gray-800 mb-4">
             Indicateurs Régularisation {activeTab === 'ouest' ? 'Ouest' : activeTab === 'est' ? 'Est' : 'Sud'}
           </h3>
           
           {activeTab === 'ouest' ? (
             <>
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 <StatCard
                   label="Total Dossiers"
                   value={regulCapitalStats?.totalDossiers || 0}
@@ -449,7 +449,7 @@ function Dashboard({ }: DashboardProps) {
                   onDetailClick={() => openModal('withIm4Bulletin', 'Dossiers IM4 Bulletin')}
                 />
               </div>
-              <div className="grid grid-cols-5 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-4">
                 <StatCard
                   label="IM4 Paiement"
                   value={regulCapitalStats?.withIm4Paiement || 0}
@@ -519,7 +519,7 @@ function Dashboard({ }: DashboardProps) {
             </>
           ) : (
             <>
-              <div className="grid grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                 <StatCard
                   label="Total Dossiers"
                   value={regulProvincesStats?.totalDossiers || 0}
@@ -586,7 +586,7 @@ function Dashboard({ }: DashboardProps) {
                   onDetailClick={() => openModal('withDepotDa', 'Dossiers Dépôt DA')}
                 />
               </div>
-              <div className="grid grid-cols-5 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-4">
                 <StatCard
                   label="Valid. DA"
                   value={regulProvincesStats?.withValidationDa || 0}
@@ -653,7 +653,7 @@ function Dashboard({ }: DashboardProps) {
                   onDetailClick={() => openModal('withQuittance', 'Dossiers Quittance')}
                 />
               </div>
-              <div className="grid grid-cols-5 gap-4 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 mt-4">
                 <StatCard
                   label="En Cours"
                   value={regulProvincesStats?.enCours || 0}
@@ -687,7 +687,7 @@ function Dashboard({ }: DashboardProps) {
       </div>
 
       {/* Monthly Evolution Chart */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 py-4">
         <MonthlyRegulChart 
           data={monthlyStats}
           loading={loadingChart}
