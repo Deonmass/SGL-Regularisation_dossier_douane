@@ -10,7 +10,7 @@ interface StatCardProps {
   textColor: string;
   rubrique?: string;
   montant?: number;
-  nombreFactures?: number;
+  nombreDossiers?: number;
   solde?: number;
   fournisseur?: string;
   subtitle?: string;
@@ -22,6 +22,7 @@ interface StatCardProps {
   icon?: 'calculator' | 'x-circle' | 'alert' | 'trending' | 'none';
   variant?: 'default' | 'compact';
   onHover?: boolean;
+  borderColor?: string;
 }
 
 function StatCard({ 
@@ -32,7 +33,7 @@ function StatCard({
   textColor, 
   rubrique, 
   montant, 
-  nombreFactures,
+  nombreDossiers,
   solde,
   fournisseur,
   subtitle,
@@ -43,7 +44,8 @@ function StatCard({
   onDetailClick,
   icon = 'none',
   variant = 'default',
-  onHover = true
+  onHover = true,
+  borderColor
 }: StatCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -72,8 +74,9 @@ function StatCard({
     }
   };
 
-  // Extract color for left bar based on bgColor
+  // Extract color for left bar based on bgColor or borderColor
   const getColorFromBg = (bg: string): string => {
+    if (borderColor) return borderColor;
     if (bg.includes('red')) return '#ef4444';
     if (bg.includes('green')) return '#22c55e';
     if (bg.includes('yellow')) return '#eab308';
@@ -150,7 +153,7 @@ function StatCard({
         {/* Center section: main value */}
         <div>
           <p className={`${textColor} text-4xl font-bold`}>
-            {formatCurrency(value)}
+            {value === 0 ? '' : formatNumber(value)}
           </p>
           <p className={`${textColor} text-sm font-medium opacity-80 mt-1`}>
             {currency}
@@ -160,7 +163,7 @@ function StatCard({
         {/* Bottom section: count */}
         <div>
           <p className="text-sm opacity-80 underline" style={{ color: isHovered ? 'white' : textColor }}>
-            {formatNumber(nombreFactures || 0)} facture{(nombreFactures || 0) > 1 ? 's' : ''}
+            {formatNumber(nombreDossiers || 0)} dossier{(nombreDossiers || 0) > 1 ? 's' : ''}
           </p>
         </div>
       </div>
@@ -203,7 +206,7 @@ function StatCard({
         
         {/* Montant principal */}
         <p className="text-lg font-bold mb-1" style={{ color: isHovered ? 'white' : (bgColor.includes('red') ? '#dc2626' : bgColor.includes('green') ? '#16a34a' : bgColor.includes('yellow') ? '#ca8a04' : bgColor.includes('blue') ? '#2563eb' : bgColor.includes('indigo') ? '#4f46e5' : bgColor.includes('purple') ? '#9333ea' : '#1f2937') }}>
-          {formatCurrency(value)} {currency}
+          {value === 0 ? '' : formatNumber(value)} {currency}
         </p>
 
         {/* Subtitle (montant total pour top fournisseur) */}
@@ -236,10 +239,10 @@ function StatCard({
           </p>
         )}
         
-        {/* Nombre de factures */}
-        {nombreFactures !== undefined && (
+        {/* Nombre de dossiers */}
+        {nombreDossiers !== undefined && (
           <p className={`text-xs font-medium ${isHovered ? 'text-gray-700' : 'text-gray-600'}`}>
-            {formatNumber(nombreFactures)} facture{nombreFactures > 1 ? 's' : ''}
+            {formatNumber(nombreDossiers)} dossier{nombreDossiers > 1 ? 's' : ''}
           </p>
         )}
       </div>

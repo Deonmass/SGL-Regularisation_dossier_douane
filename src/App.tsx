@@ -1,18 +1,18 @@
-import { useState } from 'react';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { usePermission } from './hooks/usePermission';
+import { useState, useEffect } from 'react';
+import { AuthProvider } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
-import SearchPage from './pages/SearchPage';
-import InvoicesPage from './pages/InvoicesPage';
-import ParametersPage from './pages/ParametersPage';
 import UsersPage from './pages/UsersPage';
-import InvoiceForm from './components/InvoiceForm';
-import LoginPage from './pages/LoginPage';
+import RegionPage from './pages/RegionPage';
+import PointEntreePage from './pages/PointEntreePage';
+import BureauDouanePage from './pages/BureauDouanePage';
+import RegularisationPage from './pages/RegularisationPage';
+import DossiersPage from './pages/DossiersPage';
+import ModeTransportPage from './pages/ModeTransportPage';
+import RegimeImportationPage from './pages/RegimeImportationPage';
+import ClientPage from './pages/ClientPage';
 import ToastContainer from './components/ToastContainer';
-import ValidationPage from './pages/ValidationPage';
-import PaiementsPage from './pages/PaiementsPage';
-import PaymentOrdersPage from './pages/PaymentOrdersPage';
+import { supabase } from './services/supabase';
 
 // Menu labels mapping
 const menuLabels: { [key: string]: string } = {
@@ -39,116 +39,115 @@ const menuLabels: { [key: string]: string } = {
   'parameters-caisses': 'Caisses',
   'parameters-comptes': 'Comptes',
   users: 'Utilisateurs',
+  regularisation: 'Régularisation',
+  'regularisation-nouveau': 'Nouveau dossier',
+  'regularisation-ouest': 'OUEST',
+  'regularisation-est': 'EST',
+  'regularisation-sud': 'SUD',
+  parametres: 'Paramètres',
+  'parametres-regions': 'Régions',
+  'parametres-point-entree': "Point d'entrée",
+  'parametres-bureau-douane': 'Bureau douane',
+  'parametres-mode-transport': 'Mode de transport',
+  'parametres-regime-importation': 'Régime d\'importation',
+  'parametres-client': 'Client',
 };
 
 function AppContent() {
   const [activeMenu, setActiveMenu] = useState('dashboard');
-  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
-  const { canView, canCreate, canEdit, canDelete } = usePermission();
+  const [supabaseStatus, setSupabaseStatus] = useState<'loading' | 'connected' | 'error'>('loading');
+
+  useEffect(() => {
+    async function testSupabaseConnection() {
+      try {
+        const { error } = await supabase.from('region').select('count').limit(1);
+        if (error) {
+          console.error('Supabase connection error:', error);
+          setSupabaseStatus('error');
+        } else {
+          console.log('✓ Supabase connection successful');
+          setSupabaseStatus('connected');
+        }
+      } catch (err) {
+        console.error('Supabase test error:', err);
+        setSupabaseStatus('error');
+      }
+    }
+    testSupabaseConnection();
+  }, []);
 
   const getMenuTitle = (menu: string): string => {
     return menuLabels[menu] || menu;
   };
 
   const renderPage = () => {
-    // Vérifier les permissions pour chaque page
-    const menuPermissionMap: { [key: string]: string | null } = {
-      'dashboard': 'dashboard',
-      'dashboard-factures': 'dashboard',
-      'dashboard-liquidation': 'dashboard',
-      'search': 'recherche',
-      'factures-new': 'factures',
-      'factures-all': 'factures',
-      'factures-pending': 'factures_pending_dr',
-      'factures-pending-dop': 'factures_pending_dop',
-      'factures-pending-dq': 'factures_pending_dq',
-      'factures-validated': 'factures_validated',
-      'factures-paid': 'factures_paid',
-      'factures-partially-paid': 'factures_partially_paid',
-      'factures-rejected': 'factures_rejected',
-      'factures-overdue': 'factures_overdue',
-      'factures-payment-order': 'factures_payment_order',
-      'parameters': 'paramettre',
-      'parameters-suppliers': 'fournisseurs',
-      'parameters-charges': 'charges',
-      'parameters-agents': 'utilisateurs',
-      'parameters-centres': 'centres',
-      'parameters-caisses': 'caisses',
-      'parameters-comptes': 'comptes',
-      'users': 'utilisateurs'
-    };
-
-    const requiredPermission = menuPermissionMap[activeMenu];
-    
-    // Si une permission est requise et l'utilisateur ne l'a pas, retourner au dashboard
-    if (requiredPermission && !canView(requiredPermission)) {
-      return <Dashboard activeMenu="dashboard" menuTitle={getMenuTitle('dashboard')} />;
-    }
-
-    // New Invoice Modal
-    if (activeMenu === 'factures-new') {
-      return null;
-    }
-
-    // Dashboard pages
+    // Dashboard
     if (activeMenu === 'dashboard' || activeMenu === 'dashboard-factures' || activeMenu === 'dashboard-liquidation') {
       return <Dashboard activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
 
-    // Search page
-    if (activeMenu === 'search') {
-      return <SearchPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+    // Regularisation - Nouveau dossier
+    if (activeMenu === 'regularisation-nouveau') {
+      return <RegularisationPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
 
-    // Invoices
-    if (activeMenu === 'factures-all') {
-      return <InvoicesPage filterType="all" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} onMenuChange={handleMenuChange} />;
-    }
-    if (activeMenu === 'factures-pending' || activeMenu === 'factures-pending-dop' || activeMenu === 'factures-pending-dq') {
-      return <ValidationPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
-    }
-    if (activeMenu === 'factures-validated' || activeMenu === 'factures-rejected' || activeMenu === 'factures-overdue') {
-      return <ValidationPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
-    }
-    if (activeMenu === 'factures-paid' || activeMenu === 'factures-partially-paid') {
-      return <PaiementsPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} onMenuChange={handleMenuChange} />;
+    // Regularisation - OUEST
+    if (activeMenu === 'regularisation-ouest') {
+      return <DossiersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} regionFilter="Ouest" />;
     }
 
-    // Payment Orders
-    if (activeMenu === 'factures-payment-order') {
-      return <PaymentOrdersPage />;
+    // Regularisation - EST
+    if (activeMenu === 'regularisation-est') {
+      return <DossiersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} regionFilter="Est" />;
     }
 
-    // Default to all invoices for factures menu
-    if (activeMenu.startsWith('factures')) {
-      return <InvoicesPage filterType="all" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} onMenuChange={handleMenuChange} />;
+    // Regularisation - SUD
+    if (activeMenu === 'regularisation-sud') {
+      return <DossiersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} regionFilter="Sud" />;
     }
 
-    // Parameters
-    if (activeMenu === 'parameters-suppliers') {
-      return <ParametersPage subMenu="suppliers" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+    // Regularisation
+    if (activeMenu.startsWith('regularisation')) {
+      return <Dashboard activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters-charges') {
-      return <ParametersPage subMenu="charges" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Regions
+    if (activeMenu === 'parametres-regions') {
+      return <RegionPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters-agents') {
-      return <UsersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Point d'entrée
+    if (activeMenu === 'parametres-point-entree') {
+      return <PointEntreePage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters-centres') {
-      return <ParametersPage subMenu="centres" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Bureau Douane
+    if (activeMenu === 'parametres-bureau-douane') {
+      return <BureauDouanePage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters-caisses') {
-      return <ParametersPage subMenu="caisses" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Mode Transport
+    if (activeMenu === 'parametres-mode-transport') {
+      return <ModeTransportPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters-comptes') {
-      return <ParametersPage subMenu="comptes" activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Regime Importation
+    if (activeMenu === 'parametres-regime-importation') {
+      return <RegimeImportationPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
-    if (activeMenu === 'parameters') {
-      return <ParametersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+
+    // Parametres - Client
+    if (activeMenu === 'parametres-client') {
+      return <ClientPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
+    }
+
+    // Parametres
+    if (activeMenu.startsWith('parametres')) {
+      return <Dashboard activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
 
     // Users
-    if (activeMenu === 'users') {
+    if (activeMenu === 'users' || activeMenu === 'parameters-agents') {
       return <UsersPage activeMenu={activeMenu} menuTitle={getMenuTitle(activeMenu)} />;
     }
 
@@ -157,26 +156,7 @@ function AppContent() {
   };
 
   const handleMenuChange = (menu: string) => {
-    if (menu === 'factures-new') {
-      // Vérifier la permission avant d'ouvrir le formulaire
-      if (canCreate('factures')) {
-        setShowInvoiceForm(true);
-      }
-    } else {
-      setShowInvoiceForm(false);
-    }
     setActiveMenu(menu);
-  };
-
-  const handleInvoiceSubmit = (formData: any) => {
-    console.log('Invoice submitted:', formData);
-    setShowInvoiceForm(false);
-    setActiveMenu('dashboard');
-  };
-
-  const handleInvoiceCancel = () => {
-    setShowInvoiceForm(false);
-    setActiveMenu('dashboard');
   };
 
   return (
@@ -186,17 +166,31 @@ function AppContent() {
 
       {/* Main Content */}
       <div className="flex-1 overflow-auto">
+        {/* Supabase Status Indicator */}
+        <div className="fixed top-2 right-2 z-50">
+          {supabaseStatus === 'loading' && (
+            <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600"></div>
+              Test connexion Supabase...
+            </div>
+          )}
+          {supabaseStatus === 'connected' && (
+            <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+              <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+              Supabase connecté
+            </div>
+          )}
+          {supabaseStatus === 'error' && (
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-2 rounded-lg text-sm flex items-center gap-2">
+              <span className="w-3 h-3 bg-red-500 rounded-full"></span>
+              Erreur connexion Supabase
+            </div>
+          )}
+        </div>
+
         {renderPage()}
       </div>
 
-      {/* Invoice Form Modal */}
-      {showInvoiceForm && (
-        <InvoiceForm
-          onSubmit={handleInvoiceSubmit}
-          onCancel={handleInvoiceCancel}
-        />
-      )}
-      
       {/* Toast Container */}
       <ToastContainer />
     </div>
@@ -204,25 +198,6 @@ function AppContent() {
 }
 
 function App() {
-  const { agent, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-100">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Chargement...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Si pas d'agent, afficher LoginPage
-  if (!agent) {
-    return <LoginPage />;
-  }
-
-  // Si agent authentifié, afficher AppContent
   return <AppContent />;
 }
 

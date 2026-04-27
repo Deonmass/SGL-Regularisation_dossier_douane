@@ -1,2172 +1,775 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import StatCard from '../components/StatCard';
-import InvoiceDetailModal from '../components/InvoiceDetailModal';
-import PaiementModal from '../components/PaiementModal';
-import Top10SuppliersModal from '../components/Top10SuppliersModal';
-import TopProgressBar from '../components/TopProgressBar';
-import LoadingSpinner from '../components/LoadingSpinner';
-import MonthlyInvoiceChart from '../components/MonthlyInvoiceChart';
-import SkeletonCard from '../components/SkeletonCard';
-import SkeletonGrid from '../components/SkeletonGrid';
-import ViewInvoiceModal from '../components/ViewInvoiceModal';
-import { dashboardService, type DashboardStats, type TopSupplier, type Invoice, type MonthlyInvoiceStats } from '../services/tableService';
 import { supabase } from '../services/supabase';
-import { formatCurrency } from '../utils/formatters';
-import { useAuth } from '../contexts/AuthContext';
-import { useRealtimeDataMultiple } from '../hooks/useRealtimeData';
-import { useDataRefresh, REFRESH_EVENTS } from '../hooks/useDataRefresh';
+import MonthlyRegulChart from '../components/MonthlyRegulChart';
 
 interface DashboardProps {
   activeMenu?: string;
   menuTitle?: string;
 }
 
-interface BlockingCharge {
-  id: number;
-  designation: string;
-  nombreFactures: number;
-  montantTotal: number;
-  montantPaye: number;
-  montantNonPaye: number;
+interface RegulCapitalStats {
+  totalDossiers: number;
+  withManifeste: number;
+  withTexoValide: number;
+  withDexoValide: number;
+  withIm4Bulletin: number;
+  withIm4Paiement: number;
+  withIm4Quittance: number;
+  withIm4Bae: number;
+  enCours: number;
+  termines: number;
 }
 
-interface UrgencyStats {
-  urgentes: { montant: number; count: number };
-  prioritaires: { montant: number; count: number };
-  normales: { montant: number; count: number };
+interface RegulProvincesStats {
+  totalDossiers: number;
+  withSaisieIeIc: number;
+  withValidationIeIcClient: number;
+  withValidationIeIcDrf: number;
+  withDepotDa: number;
+  withValidationDa: number;
+  withRetrait: number;
+  withSoumissionIm4: number;
+  withBulletin: number;
+  withQuittance: number;
+  enCours: number;
+  termines: number;
 }
 
-interface AgeStats {
-  zero30: { montant: number; count: number };
-  thirty60: { montant: number; count: number };
-  sixty90: { montant: number; count: number };
-  plus90: { montant: number; count: number };
-}
-
-interface SupplierAgeRow {
-  fournisseur: string;
-  nonEchu: number;
-  zero30: number;
-  thirty60: number;
-  sixty90: number;
-  plus90: number;
-  total: number;
-}
-
-interface BulletinSupplierBreakdown {
-  fournisseur: string;
-  totalMontant: number;
-  totalPaid: number;
-  totalUnpaid: number;
-  totalRejected: number;
-  count: number;
+interface MonthlyRegulStats {
+  month: string;
+  completed: number;
+  pending: number;
 }
 
 interface ModalState {
   isOpen: boolean;
-  type: 'total' | 'nonPayee' | 'bonAPayer' | 'enAttenteValidation' | 'payee' | 'partiellementPayee' | 'rejetee' | 'echue' | 'topSupplier' | null;
-  invoices: Invoice[];
-  title?: string;
-  summary?: {
-    totalAmount?: number;
-    totalPaid?: number;
-    totalRemaining?: number;
-  };
+  title: string;
+  data: any[];
 }
 
-interface Top10Supplier {
-  fournisseur: string;
-  nombreFactures: number;
-  montantNonPaye: number;
-}
+type RegionTab = 'ouest' | 'est' | 'sud';
 
-function Dashboard({ menuTitle }: DashboardProps) {
-  const { agent } = useAuth();
-  const [activeTab, setActiveTab] = useState(1);
-  const [selectedYear, setSelectedYear] = useState('2026');
-  const [selectedMonth, setSelectedMonth] = useState('all');
-  // Initialiser à undefined - la synchronisation avec agent se fera via useEffect
-  const [selectedRegionBulletin, setSelectedRegionBulletin] = useState<string | undefined>(undefined);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  const [regions, setRegions] = useState<string[]>([]);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [topSupplier, setTopSupplier] = useState<TopSupplier | null>(null);
-  const [blockingCharges, setBlockingCharges] = useState<BlockingCharge[]>([]);
-  const [urgencyStats, setUrgencyStats] = useState<UrgencyStats | null>(null);
-  const [ageStats, setAgeStats] = useState<AgeStats | null>(null);
-  const [supplierAgeData, setSupplierAgeData] = useState<SupplierAgeRow[]>([]);
-  const [bulletinSupplierData, setBulletinSupplierData] = useState<BulletinSupplierBreakdown[]>([]);
-  const [bulletinGlobalStats, setBulletinGlobalStats] = useState<DashboardStats | null>(null);
-  const [bulletinUrgencyStats, setBulletinUrgencyStats] = useState<UrgencyStats | null>(null);
-  const [bulletinAgeStats, setBulletinAgeStats] = useState<AgeStats | null>(null);
-  const [monthlyData, setMonthlyData] = useState<MonthlyInvoiceStats[]>([]);
-  const [costCenterData, setCostCenterData] = useState<Array<{ centre: string; montant: number; nombreFactures: number; montantPaye: number; montantNonPaye: number }>>([]);
-  const [supplierCategories, setSupplierCategories] = useState<Array<{ category: string; color: string; count: number; montant: number; nombreFournisseurs: number; montantPaye: number; soldeAPayer: number }>>([]);
-  const [selectedSupplierCategory, setSelectedSupplierCategory] = useState<string | null>(null);
-  const [suppliersByCategory, setSuppliersByCategory] = useState<Array<{ fournisseur: string; montant: number; nombreFactures: number; montantPaye: number; solde: number }>>([]);
-  const [selectedSupplierForModal, setSelectedSupplierForModal] = useState<string | null>(null);
-  const [supplierInvoices, setSupplierInvoices] = useState<any[]>([]);
-  const [supplierModalLoading, setSupplierModalLoading] = useState(false);
-  const [invoiceForViewModal, setInvoiceForViewModal] = useState<any>(null);
-  const [invoiceForPaiementModal, setInvoiceForPaiementModal] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [top10Suppliers, setTop10Suppliers] = useState<Top10Supplier[]>([]);
-  const [top10Loading, setTop10Loading] = useState(false);
-  const [modal, setModal] = useState<ModalState>({
-    isOpen: false,
-    type: null,
-    invoices: [],
-    title: '',
-  });
-  const [top10Modal, setTop10Modal] = useState<{ isOpen: boolean }>({
-    isOpen: false,
-  });
+function Dashboard({ }: DashboardProps) {
+  const [regulCapitalStats, setRegulCapitalStats] = useState<RegulCapitalStats | null>(null);
+  const [regulProvincesStats, setRegulProvincesStats] = useState<RegulProvincesStats | null>(null);
+  const [monthlyStats, setMonthlyStats] = useState<MonthlyRegulStats[]>([]);
+  const [loadingChart, setLoadingChart] = useState(false);
+  const [modal, setModal] = useState<ModalState>({ isOpen: false, title: '', data: [] });
+  const [activeTab, setActiveTab] = useState<RegionTab>('ouest');
 
-  const tabs = [
-    { id: 1, label: 'Global' },
-    { id: 2, label: 'Bulletin de Liquidation' },
-    { id: 3, label: 'Factures à impact opérationnel' },
-    { id: 4, label: 'Balance agé' },
-    { id: 5, label: 'Centre des coûts' },
-    { id: 6, label: 'Fournisseur' }
-  ];
-
-  const loadCostCenterData = async (costCenterRegion?: string | null) => {
-    try {
-      const region = costCenterRegion !== undefined ? costCenterRegion : selectedRegionBulletin;
-      // Si region est undefined, charger TOUS les centres de coûts
-      // Sinon, charger les centres de coûts de la région spécifiée
-      if (region === undefined) {
-        // Afficher tous les centres de coûts (toutes régions)
-        const costCenters = await dashboardService.getCostCentersWithStats(selectedYear);
-        setCostCenterData(costCenters);
-      } else if (region) {
-        // Afficher les centres de coûts de la région spécifiée
-        const costCenters = await dashboardService.getCostCentersWithStatsByRegion(region, selectedYear);
-        setCostCenterData(costCenters);
-      } else {
-        // Pas de région (edge case)
-        setCostCenterData([]);
-      }
-    } catch (err) {
-      console.error('Erreur lors du chargement des données des centres de coûts:', err);
+  const loadRegulCapitalStats = async (region: RegionTab = 'ouest') => {
+    if (region === 'ouest') {
+      await loadCapitalStats();
+      await loadMonthlyStats('regul_capital');
+    } else {
+      await loadProvincesStats();
+      await loadMonthlyStats('regul_provinces');
     }
   };
 
-  const loadSupplierCategories = async () => {
+  const loadCapitalStats = async () => {
     try {
-      const { data: factures, error } = await supabase
-        .from('FACTURES')
-        .select('ID, Montant, "Catégorie fournisseur", "Fournisseur", "Date de réception", "Numéro de facture", "Région"');
-      
-      if (error) throw error;
+      const { data: regulCapital } = await supabase
+        .from('regul_capital')
+        .select('*');
 
-      // Charger les paiements
-      const { data: paiements, error: paiementsError } = await supabase
-        .from('PAIEMENTS')
-        .select('NumeroFacture, montantPaye');
-      
-      if (paiementsError) throw paiementsError;
-
-      // Créer une map des paiements par numéro de facture
-      const paymentMap = new Map<string, number>();
-      if (paiements) {
-        paiements.forEach((p: any) => {
-          const invoiceNumber = p.NumeroFacture;
-          const paid = (paymentMap.get(invoiceNumber) || 0) + (parseFloat(p.montantPaye) || 0);
-          paymentMap.set(invoiceNumber, paid);
-        });
+      if (!regulCapital) {
+        setRegulCapitalStats(null);
+        return;
       }
 
-      // Filtrer par année, mois et région
-      const monthFilter = selectedMonth !== 'all' ? parseInt(selectedMonth) : null;
-      const filtered = (factures || []).filter((f: any) => {
-        if (!f['Date de réception']) return false;
-        const date = new Date(f['Date de réception']);
-        if (date.getFullYear().toString() !== selectedYear) return false;
-        if (monthFilter && date.getMonth() + 1 !== monthFilter) return false;
-        // Filter by region - respect agent's region restrictions
-        if (selectedRegionBulletin !== undefined && f['Région'] !== selectedRegionBulletin) return false;
-        return true;
-      });
+      const totalDossiers = regulCapital.length;
+      const withManifeste = regulCapital.filter(d => d.date_obtention_manifeste).length;
+      const withTexoValide = regulCapital.filter(d => d.texo_date_validation).length;
+      const withDexoValide = regulCapital.filter(d => d.dexo_date_validation).length;
+      const withIm4Bulletin = regulCapital.filter(d => d.im4_date_bulletin).length;
+      const withIm4Paiement = regulCapital.filter(d => d.im4_date_paiement).length;
+      const withIm4Quittance = regulCapital.filter(d => d.im4_date_quittance).length;
+      const withIm4Bae = regulCapital.filter(d => d.im4_date_bae).length;
+      const enCours = regulCapital.filter(d => !d.im4_date_bae).length;
+      const termines = regulCapital.filter(d => d.im4_date_bae).length;
 
-      // Grouper par catégorie de fournisseur
-      const categories = new Map<string, { montant: number; count: number; fournisseurs: Set<string>; montantPaye: number; soldeAPayer: number }>();
-      
-      filtered.forEach((f: any) => {
-        const category = f['Catégorie fournisseur'] || 'Non spécifiée';
-        const montant = parseFloat(f.Montant) || 0;
-        const fournisseur = f['Fournisseur'];
-        const invoiceNumber = f['Numéro de facture'];
-        const totalPaidForInvoice = paymentMap.get(invoiceNumber) || 0;
-        const reste = montant - totalPaidForInvoice;
-        
-        if (!categories.has(category)) {
-          categories.set(category, { montant: 0, count: 0, fournisseurs: new Set(), montantPaye: 0, soldeAPayer: 0 });
+      setRegulCapitalStats({
+        totalDossiers,
+        withManifeste,
+        withTexoValide,
+        withDexoValide,
+        withIm4Bulletin,
+        withIm4Paiement,
+        withIm4Quittance,
+        withIm4Bae,
+        enCours,
+        termines,
+      });
+    } catch (err) {
+      console.error('Error loading capital stats:', err);
+    }
+  };
+
+  const loadProvincesStats = async () => {
+    try {
+      const { data: regulProvinces } = await supabase
+        .from('regul_provinces')
+        .select('*');
+
+      if (!regulProvinces) {
+        setRegulProvincesStats(null);
+        return;
+      }
+
+      const totalDossiers = regulProvinces.length;
+      const withSaisieIeIc = regulProvinces.filter(d => d.date_saisie_ie_ic).length;
+      const withValidationIeIcClient = regulProvinces.filter(d => d.date_validation_ie_ic_client).length;
+      const withValidationIeIcDrf = regulProvinces.filter(d => d.date_validation_ie_ic_drf).length;
+      const withDepotDa = regulProvinces.filter(d => d.date_depot_da).length;
+      const withValidationDa = regulProvinces.filter(d => d.date_validation_da).length;
+      const withRetrait = regulProvinces.filter(d => d.date_retrait).length;
+      const withSoumissionIm4 = regulProvinces.filter(d => d.date_soumission_im4).length;
+      const withBulletin = regulProvinces.filter(d => d.date_bulletin).length;
+      const withQuittance = regulProvinces.filter(d => d.date_quittance).length;
+      const enCours = regulProvinces.filter(d => !d.date_quittance).length;
+      const termines = regulProvinces.filter(d => d.date_quittance).length;
+
+      setRegulProvincesStats({
+        totalDossiers,
+        withSaisieIeIc,
+        withValidationIeIcClient,
+        withValidationIeIcDrf,
+        withDepotDa,
+        withValidationDa,
+        withRetrait,
+        withSoumissionIm4,
+        withBulletin,
+        withQuittance,
+        enCours,
+        termines,
+      });
+    } catch (err) {
+      console.error('Error loading provinces stats:', err);
+    }
+  };
+
+  const loadMonthlyStats = async (tableName: string) => {
+    setLoadingChart(true);
+    try {
+      const { data: regulData } = await supabase
+        .from(tableName)
+        .select('*');
+
+      console.log('Monthly stats data from', tableName, regulData);
+
+      if (!regulData) {
+        setMonthlyStats([]);
+        setLoadingChart(false);
+        return;
+      }
+
+      // Determine the completion field based on table
+      const completionField = tableName === 'regul_capital' ? 'im4_date_bae' : 'date_quittance';
+
+      // Group by month
+      const monthlyData: Record<string, MonthlyRegulStats> = regulData.reduce((acc, d: any) => {
+        const date = new Date(d.created_at);
+        const month = date.toLocaleDateString('fr-FR', { month: 'short', year: 'numeric' });
+
+        if (!acc[month]) {
+          acc[month] = { month, completed: 0, pending: 0 };
         }
-        
-        const cat = categories.get(category)!;
-        cat.montant += montant;
-        cat.count += 1;
-        cat.fournisseurs.add(fournisseur);
-        cat.montantPaye += totalPaidForInvoice;
-        cat.soldeAPayer += reste;
-      });
 
-      // Convertir en array avec couleurs
-      const colors = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-cyan-500'];
-      const categoryArray = Array.from(categories.entries()).map(([category, data], idx) => ({
-        category,
-        color: colors[idx % colors.length],
-        count: data.count,
-        nombreFournisseurs: data.fournisseurs.size,
-        montant: data.montant,
-        montantPaye: data.montantPaye,
-        soldeAPayer: data.soldeAPayer
-      }));
-
-      setSupplierCategories(categoryArray);
-      setSelectedSupplierCategory(null);
-    } catch (err) {
-      console.error('Erreur lors du chargement des catégories de fournisseurs:', err);
-    }
-  };
-
-  const loadSuppliersByCategory = async (category: string) => {
-    try {
-      const { data: factures, error } = await supabase
-        .from('FACTURES')
-        .select('Fournisseur, Montant, "Date de réception", "Numéro de facture", "Région", "Catégorie fournisseur"');
-      
-      if (error) throw error;
-
-      // Charger les paiements
-      const { data: paiements, error: paiementsError } = await supabase
-        .from('PAIEMENTS')
-        .select('NumeroFacture, montantPaye');
-      
-      if (paiementsError) throw paiementsError;
-
-      // Créer une map des paiements par numéro de facture
-      const paymentMap = new Map<string, number>();
-      if (paiements) {
-        paiements.forEach((p: any) => {
-          const invoiceNumber = p.NumeroFacture;
-          const paid = (paymentMap.get(invoiceNumber) || 0) + (parseFloat(p.montantPaye) || 0);
-          paymentMap.set(invoiceNumber, paid);
-        });
-      }
-
-      // Filtrer par année, mois, catégorie et région
-      const monthFilter = selectedMonth !== 'all' ? parseInt(selectedMonth) : null;
-      const filtered = (factures || []).filter((f: any) => {
-        if (!f['Date de réception']) return false;
-        const date = new Date(f['Date de réception']);
-        if (date.getFullYear().toString() !== selectedYear) return false;
-        if (monthFilter && date.getMonth() + 1 !== monthFilter) return false;
-        // Filter by category
-        if (f['Catégorie fournisseur'] !== category) return false;
-        // Filter by region - respect agent's region restrictions
-        if (selectedRegionBulletin !== undefined && f['Région'] !== selectedRegionBulletin) return false;
-        return true;
-      });
-
-      // Grouper par fournisseur
-      const suppliers = new Map<string, { montant: number; count: number; montantPaye: number; solde: number }>();
-      
-      filtered.forEach((f: any) => {
-        const montant = parseFloat(f.Montant) || 0;
-        const fournisseur = f['Fournisseur'];
-        const invoiceNumber = f['Numéro de facture'];
-        const totalPaidForInvoice = paymentMap.get(invoiceNumber) || 0;
-        const reste = montant - totalPaidForInvoice;
-        
-        if (!suppliers.has(fournisseur)) {
-          suppliers.set(fournisseur, { montant: 0, count: 0, montantPaye: 0, solde: 0 });
+        // Completed if final step date is set
+        if (d[completionField]) {
+          acc[month].completed++;
+        } else {
+          acc[month].pending++;
         }
-        
-        const sup = suppliers.get(fournisseur)!;
-        sup.montant += montant;
-        sup.count += 1;
-        sup.montantPaye += totalPaidForInvoice;
-        sup.solde += reste;
+
+        return acc;
+      }, {} as Record<string, MonthlyRegulStats>);
+
+      // Convert to array and sort by date
+      const sortedData = Object.values(monthlyData).sort((a, b) => {
+        const dateA = new Date(a.month);
+        const dateB = new Date(b.month);
+        return dateA.getTime() - dateB.getTime();
       });
 
-      // Convertir et trier par solde décroissant (solde à payer en priorité)
-      const supplierArray = Array.from(suppliers.entries())
-        .map(([fournisseur, data]) => ({
-          fournisseur,
-          montant: data.montant,
-          nombreFactures: data.count,
-          montantPaye: data.montantPaye,
-          solde: data.solde
-        }))
-        .sort((a, b) => b.solde - a.solde);
-
-      setSuppliersByCategory(supplierArray);
+      console.log('Monthly stats sorted data', sortedData);
+      setMonthlyStats(sortedData);
     } catch (err) {
-      console.error('Erreur lors du chargement des fournisseurs:', err);
-    }
-  };
-
-  const loadSupplierInvoices = async (supplierName: string) => {
-    try {
-      const { data: factures, error } = await supabase
-        .from('FACTURES')
-        .select('ID, "Numéro de facture", Montant, "Date de réception", Statut, "validation DR", "validation DOP", "validation DG"')
-        .eq('Fournisseur', supplierName);
-      
-      if (error) throw error;
-
-      // Charger les paiements
-      const { data: paiements, error: paiementsError } = await supabase
-        .from('PAIEMENTS')
-        .select('NumeroFacture, montantPaye');
-      
-      if (paiementsError) throw paiementsError;
-
-      // Créer une map des paiements
-      const paymentMap = new Map<string, number>();
-      if (paiements) {
-        paiements.forEach((p: any) => {
-          const invoiceNumber = p.NumeroFacture;
-          const paid = (paymentMap.get(invoiceNumber) || 0) + (parseFloat(p.montantPaye) || 0);
-          paymentMap.set(invoiceNumber, paid);
-        });
-      }
-
-      // Enrichir les factures avec les données de paiement
-      const enrichedInvoices = (factures || []).map((f: any) => {
-        const invoiceNumber = f['Numéro de facture'];
-        const montant = parseFloat(f.Montant) || 0;
-        const totalPaid = paymentMap.get(invoiceNumber) || 0;
-        return {
-          ...f,
-          montantPaye: totalPaid,
-          solde: montant - totalPaid
-        };
-      });
-
-      setSupplierInvoices(enrichedInvoices);
-    } catch (err) {
-      console.error('Erreur lors du chargement des factures du fournisseur:', err);
-      setSupplierInvoices([]);
+      console.error('Error loading monthly stats:', err);
     } finally {
-      setSupplierModalLoading(false);
+      setLoadingChart(false);
     }
   };
 
-  // Load supplier invoices when selectedSupplierForModal changes
   useEffect(() => {
-    if (selectedSupplierForModal) {
-      loadSupplierInvoices(selectedSupplierForModal);
-    }
-  }, [selectedSupplierForModal]);
-
-  const loadDashboardData = async () => {
-    console.log('?? [Dashboard] loadDashboardData called with: year=', selectedYear, ', region=', selectedRegionBulletin, ', month=', selectedMonth);
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Phase 1: Charger les données critiques d'abord (cartes principales)
-      const [dashStats, supplier, charges] = await Promise.all([
-        dashboardService.getDashboardStats(selectedYear, selectedRegionBulletin),
-        dashboardService.getTopSupplier(selectedYear, selectedRegionBulletin),
-        dashboardService.getBlockingChargesStats(selectedYear, selectedRegionBulletin)
-      ]);
-      
-      // Mettre à jour les données critiques immédiatement
-      setStats(dashStats);
-      setTopSupplier(supplier);
-      setBlockingCharges(charges);
-      
-      console.log('?? [Dashboard] Critical data loaded. dashStats.totalMontant=', dashStats.totalMontant, ', chargesCount=', charges.length, ', topSupplier=', supplier?.fournisseur);
-      
-      // Phase 2: Charger les données secondaires en parallèle
-      const [urgency, age, supplierAge, bulletin, monthly, availableRegions] = await Promise.all([
-        dashboardService.getInvoicesByUrgency(selectedYear, selectedRegionBulletin),
-        dashboardService.getInvoicesByAge(selectedYear, selectedRegionBulletin),
-        dashboardService.getSupplierAgeBreakdown(selectedYear, selectedRegionBulletin),
-        dashboardService.getBulletinStats(selectedYear, selectedRegionBulletin),
-        dashboardService.getMonthlyInvoiceStats(selectedYear, selectedRegionBulletin),
-        dashboardService.getRegions()
-      ]);
-      
-      setUrgencyStats(urgency);
-      setAgeStats(age);
-      setSupplierAgeData(supplierAge);
-      setBulletinSupplierData(bulletin.supplierBreakdown);
-      setMonthlyData(monthly);
-      setRegions(availableRegions);
-      
-      // Phase 3: Charger les données des centres de coûts (non critique)
-      await loadCostCenterData();
-      
-    } catch (err) {
-      console.error('Erreur lors du chargement des données du dashboard:', err);
-      setError('Erreur lors du chargement des données');
-    } finally {
-      setLoading(false);
-      setIsInitialLoad(false);
-    }
-  };
-
-  const calculateBulletinStats = async () => {
-    try {
-      // Charger toutes les factures du bulletin de liquidation
-      const { data: factures, error } = await supabase
-        .from('FACTURES')
-        .select('ID, Montant, "Statut", "Date de réception", "validation DR", "validation DOP", "validation DG", "Numéro de facture", "Région", "Catégorie de charge"');
-      
-      if (error) throw error;
-
-      // Charger les paiements
-      const { data: paiements } = await supabase
-        .from('PAIEMENTS')
-        .select('NumeroFacture, montantPaye');
-
-      // Créer une map des paiements par numéro de facture
-      const paymentMap = new Map<string, number>();
-      if (paiements) {
-        paiements.forEach((p: any) => {
-          const invoiceNumber = p.NumeroFacture;
-          const paid = (paymentMap.get(invoiceNumber) || 0) + (parseFloat(p.montantPaye) || 0);
-          paymentMap.set(invoiceNumber, paid);
-        });
-      }
-
-      // Initialiser les stats
-      let totalMontant = 0;
-      let totalPaid = 0;
-      let nonPayeeMontant = 0;
-      let nonPayeeCount = 0;
-      let bonAPayerMontant = 0;
-      let bonAPayerCount = 0;
-      let enAttenteValidationMontant = 0;
-      let enAttenteValidationCount = 0;
-      let payeeMontant = 0;
-      let payeeCount = 0;
-      let totalFactures = 0;
-      let partiellementPayeeMontantTotal = 0;
-      let partiellementPayeeMontantPaye = 0;
-      let partiellementPayeeReste = 0;
-      let partiellementPayeeCount = 0;
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      // Traiter chaque facture
-      (factures || []).forEach((facture: any) => {
-        // Filtrer par catégorie de charge - UNIQUEMENT Bulletin de liquidation
-        if (facture['Catégorie de charge'] !== 'Bulletin de liquidation') {
-          return;
-        }
-
-        // Filtrer par année
-        if (selectedYear) {
-          const receptionDate = new Date(facture['Date de réception']);
-          if (receptionDate.getFullYear().toString() !== selectedYear) {
-            return;
-          }
-        }
-
-        // Filtrer par région si sélectionnée
-        if (selectedRegionBulletin && facture['Région'] !== selectedRegionBulletin) {
-          return;
-        }
-
-        const montant = parseFloat(facture.Montant) || 0;
-        const statut = facture.Statut?.toLowerCase() || '';
-        const invoiceNumber = facture['Numéro de facture'];
-
-        // Exclus les factures rejetées
-        if (statut.includes('rejet')) return;
-
-        totalMontant += montant;
-        totalFactures += 1;
-
-        const totalPaidForInvoice = paymentMap.get(invoiceNumber) || 0;
-        const reste = montant - totalPaidForInvoice;
-
-        // Ajouter les montants payés
-        payeeMontant += totalPaidForInvoice;
-        if (totalPaidForInvoice > 0) {
-          payeeCount += 1;
-        }
-
-        // Ajouter les montants non payés
-        if (reste > 0) {
-          nonPayeeMontant += reste;
-          if (totalPaidForInvoice === 0) {
-            nonPayeeCount += 1;
-          }
-        }
-
-        // Paiement partiel
-        if (totalPaidForInvoice > 0 && totalPaidForInvoice < montant) {
-          partiellementPayeeMontantTotal += montant;
-          partiellementPayeeMontantPaye += totalPaidForInvoice;
-          partiellementPayeeReste += reste;
-          partiellementPayeeCount += 1;
-        }
-
-        // Vérifier la validation pour les factures non complètement payées
-        if (totalPaidForInvoice < montant) {
-          const drValidated = facture['validation DR'] != null && String(facture['validation DR']).trim() !== '';
-          const dopValidated = facture['validation DOP'] != null && String(facture['validation DOP']).trim() !== '';
-          const dgValidated = facture['validation DG'] != null && String(facture['validation DG']).trim() !== '';
-          
-          let isValidated = false;
-          if (montant <= 2500) {
-            isValidated = drValidated;
-          } else if (montant <= 10000) {
-            isValidated = drValidated && dopValidated;
-          } else {
-            isValidated = drValidated && dopValidated && dgValidated;
-          }
-
-          if (isValidated) {
-            bonAPayerMontant += reste;
-            if (totalPaidForInvoice === 0) {
-              bonAPayerCount += 1;
-            }
-          } else {
-            enAttenteValidationMontant += reste;
-            if (totalPaidForInvoice === 0) {
-              enAttenteValidationCount += 1;
-            }
-          }
-        }
-
-        totalPaid += totalPaidForInvoice;
-      });
-
-      setBulletinGlobalStats({
-        totalMontant,
-        totalPaid,
-        totalUnpaid: nonPayeeMontant,
-        totalRejected: 0,
-        totalFactures,
-        nonPayeeMontant,
-        nonPayeeCount,
-        bonAPayerMontant,
-        bonAPayerCount,
-        enAttenteValidationMontant,
-        enAttenteValidationCount,
-        payeeMontant,
-        payeeCount,
-        partiellementPayeeMontantTotal,
-        partiellementPayeeMontantPaye,
-        partiellementPayeeReste,
-        partiellementPayeeCount,
-        echueMontant: 0,
-        echueeCount: 0,
-        rejeteeCount: 0,
-        rejeteeMontant: 0,
-      } as any);
-
-      // Pour le moment, on ne calcule pas les stats d'urgence et d'âge pour le Bulletin
-      // Ces calculs peuvent être ajoutés ultérieurement si nécessaire
-      setBulletinUrgencyStats({
-        urgentes: { montant: 0, count: 0 },
-        prioritaires: { montant: 0, count: 0 },
-        normales: { montant: 0, count: 0 },
-      });
-
-      setBulletinAgeStats({
-        zero30: { montant: 0, count: 0 },
-        thirty60: { montant: 0, count: 0 },
-        sixty90: { montant: 0, count: 0 },
-        plus90: { montant: 0, count: 0 },
-      });
-    } catch (err) {
-      console.error('Erreur lors du calcul des données Bulletin de Liquidation:', err);
-    }
-  };
-
-  // Load dashboard data when year, month, or region changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    loadDashboardData();
-  }, [selectedYear, selectedMonth, selectedRegionBulletin]);
-
-  // Synchroniser selectedRegionBulletin avec la région de l'agent connecté
-  useEffect(() => {
-    if (agent?.REGION) {
-      if (agent.REGION !== 'TOUT') {
-        // Si l'agent a une région spécifique (pas TOUT), forcer cette région
-        setSelectedRegionBulletin(agent.REGION);
-      } else {
-        // Si l'agent a la région TOUT, afficher toutes les régions (undefined)
-        setSelectedRegionBulletin(undefined);
-      }
-    }
-  }, [agent?.REGION]);
-
-  // Recalculate bulletin stats when region changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (!isInitialLoad) {
-      calculateBulletinStats();
-    }
-  }, [selectedRegionBulletin]);
-
-  // Reload cost center data when region or year changes
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (activeTab === 5) {
-      loadCostCenterData(selectedRegionBulletin);
-    }
-  }, [selectedRegionBulletin, activeTab, selectedYear]);
-
-  // Load supplier categories when tab 6 is active
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (activeTab === 6) {
-      loadSupplierCategories();
-    }
-  }, [activeTab, selectedYear, selectedMonth, selectedRegionBulletin]);
-
-  // Reload suppliers when filters change and a category is selected
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (selectedSupplierCategory) {
-      loadSuppliersByCategory(selectedSupplierCategory);
-    }
-  }, [selectedYear, selectedMonth, selectedRegionBulletin]);
-
-  // Initial load on component mount
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    loadDashboardData();
-    calculateBulletinStats();
-  }, []);
-
-  // Écouter les changements en temps réel dans les tables pertinentes
-  useRealtimeDataMultiple([
-    {
-      name: 'FACTURES',
-      options: {
-        onInsert: () => {
-          console.log('✓ Nouvelle facture détectée - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-        onUpdate: () => {
-          console.log('✓ Facture modifiée - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-        onDelete: () => {
-          console.log('✓ Facture supprimée - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-      },
-    },
-    {
-      name: 'PAIEMENTS',
-      options: {
-        onInsert: () => {
-          console.log('✓ Nouveau paiement détecté - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-        onUpdate: () => {
-          console.log('✓ Paiement modifié - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-        onDelete: () => {
-          console.log('✓ Paiement supprimé - rafraîchissement');
-          loadDashboardData();
-          calculateBulletinStats();
-        },
-      },
-    },
-  ]);
-
-  // Écouter les événements de rafraîchissement manuel
-  useDataRefresh(REFRESH_EVENTS.DASHBOARD_STATS, () => {
-    console.log('🔄 Rafraîchissement manuel des stats du dashboard');
-    loadDashboardData();
-    calculateBulletinStats();
-  });
-
-  // Ensure agent's region is respected - update selectedRegionBulletin if agent's region changes
-  useEffect(() => {
-    if (agent?.REGION && agent.REGION !== 'TOUT') {
-      // Agent has a specific region - force selection to their region
-      setSelectedRegionBulletin(agent.REGION);
-    }
-  }, [agent?.REGION]);
+    loadRegulCapitalStats(activeTab);
+  }, [activeTab]);
 
   const handleRefresh = () => {
-    loadDashboardData();
+    loadRegulCapitalStats(activeTab);
   };
 
-  const openTop10Modal = async () => {
-    setTop10Loading(true);
+  const handleTabChange = (tab: RegionTab) => {
+    setActiveTab(tab);
+  };
+
+  const loadDossiersByFilter = async (filterType: string) => {
     try {
-      const data = await dashboardService.getTop10SuppliersWithUnpaidInvoices(selectedYear, selectedRegionBulletin);
-      setTop10Suppliers(data);
-      setTop10Modal({ isOpen: true });
-    } catch (err) {
-      console.error('Erreur lors du chargement des top 10 fournisseurs:', err);
-    } finally {
-      setTop10Loading(false);
-    }
-  };
-
-  const closeTop10Modal = () => {
-    setTop10Modal({ isOpen: false });
-  };
-
-  const openModalByUrgency = async (urgencyLevel: 'urgentes' | 'prioritaires' | 'normales', title: string) => {
-    try {
-      const invoices = await dashboardService.getInvoicesByUrgencyDetailed(urgencyLevel, selectedYear);
-      
-      // Filter by region if selected
-      let filtered = invoices;
-      if (selectedRegionBulletin) {
-        filtered = invoices.filter((inv: any) => inv['Région'] === selectedRegionBulletin);
-      }
-      
-      let summary: { totalAmount?: number } | undefined = undefined;
-
-      if (urgencyLevel === 'urgentes') {
-        summary = { totalAmount: urgencyStats?.urgentes.montant || 0 };
-      } else if (urgencyLevel === 'prioritaires') {
-        summary = { totalAmount: urgencyStats?.prioritaires.montant || 0 };
-      } else {
-        summary = { totalAmount: urgencyStats?.normales.montant || 0 };
+      let tableName = 'regul_capital';
+      if (activeTab === 'est' || activeTab === 'sud') {
+        tableName = 'regul_provinces';
       }
 
-      setModal({
-        isOpen: true,
-        type: null,
-        invoices: filtered,
-        title,
-        summary,
-      });
-    } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal:', err);
-    }
-  };
-
-  const openModalByChargeCategory = async (designation: string, title: string) => {
-    try {
-      const invoices = await dashboardService.getInvoicesByChargeCategory(designation, selectedYear, selectedRegionBulletin);
+      let query = supabase.from(tableName).select('*');
       
-      let summary: { totalAmount?: number } | undefined = undefined;
-
-      // Find the charge in blockingCharges to get the amount
-      const charge = blockingCharges.find(c => c.designation === designation);
-      if (charge) {
-        summary = { totalAmount: charge.montantTotal };
-      }
-
-      setModal({
-        isOpen: true,
-        type: null,
-        invoices: invoices,
-        title,
-        summary,
-      });
-    } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal:', err);
-    }
-  };
-
-  const openModalByCostCenter = async (costCenter: string, title: string) => {
-    try {
-      // Récupérer les factures pour le centre de coûts spécifique
-      const invoices = await dashboardService.getInvoicesByCostCenter(costCenter, selectedYear);
-      
-      // Filtrer par région si sélectionnée
-      let filtered = invoices;
-      if (selectedRegionBulletin) {
-        filtered = invoices.filter((inv: any) => inv['Région'] === selectedRegionBulletin);
-      }
-      
-      setModal({
-        isOpen: true,
-        type: null,
-        invoices: filtered,
-        title,
-      });
-    } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal:', err);
-    }
-  };
-
-  // Fonctions dédiées pour les Bulletins de Liquidation
-  const openModalForBulletinByType = async (type: ModalState['type'], title: string) => {
-    try {
-      let invoices: Invoice[] = [];
-      let summary: { totalAmount?: number; totalPaid?: number; totalRemaining?: number } | undefined = undefined;
-
-      // Charger toutes les factures bulletin
-      const [nonPayee, bonAPayer, payee, partiellementPayee, echue, rejetee] = await Promise.all([
-        dashboardService.getNonPayeeInvoices(selectedYear),
-        dashboardService.getBonAPayerInvoices(selectedYear),
-        dashboardService.getPayeeInvoices(selectedYear),
-        dashboardService.getPartiellementPayeeInvoices(selectedYear),
-        dashboardService.getOverdueInvoices(selectedYear),
-        dashboardService.getRejeteesInvoices(selectedYear),
-      ]);
-      
-      let allBulletins = [...nonPayee, ...bonAPayer, ...payee, ...partiellementPayee, ...echue, ...rejetee] as any[];
-      
-      // Filtrer uniquement les bulletins de liquidation
-      allBulletins = allBulletins.filter(inv => inv['Catégorie de charge'] === 'Bulletin de liquidation');
-      
-      // Filter by region if selected
-      if (selectedRegionBulletin) {
-        allBulletins = allBulletins.filter(inv => inv['Région'] === selectedRegionBulletin);
-      }
-      
-      // Supprimer les doublons
-      const seen = new Set();
-      allBulletins = allBulletins.filter((inv) => {
-        const key = inv['Numéro de facture'];
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      // Filtrer selon le type
-      switch (type) {
-        case 'total':
-          invoices = allBulletins;
-          summary = { totalAmount: bulletinGlobalStats?.totalMontant };
-          break;
-        case 'nonPayee':
-          invoices = allBulletins;
-          summary = { totalAmount: bulletinGlobalStats?.nonPayeeMontant };
-          break;
-        case 'bonAPayer':
-          invoices = allBulletins;
-          summary = { totalAmount: bulletinGlobalStats?.bonAPayerMontant };
-          break;
-        case 'payee':
-          invoices = allBulletins;
-          summary = { totalAmount: bulletinGlobalStats?.payeeMontant };
-          break;
-        case 'echue':
-          invoices = allBulletins;
-          summary = { totalAmount: bulletinGlobalStats?.echueMontant };
-          break;
-      }
-
-      setModal({
-        isOpen: true,
-        type,
-        invoices: invoices as Invoice[],
-        title,
-        summary
-      });
-    } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal bulletin:', err);
-    }
-  };
-
-  // Ouvrir modal pour bulletins d'un fournisseur spécifique
-  const openModalForBulletinFromTable = async (fournisseur: string, filterType: 'all' | 'paid' | 'unpaid' | 'rejected' = 'all') => {
-    try {
-      const [nonPayee, bonAPayer, payee, partiellementPayee, echue, rejetee] = await Promise.all([
-        dashboardService.getNonPayeeInvoices(selectedYear, selectedRegionBulletin),
-        dashboardService.getBonAPayerInvoices(selectedYear, selectedRegionBulletin),
-        dashboardService.getPayeeInvoices(selectedYear, selectedRegionBulletin),
-        dashboardService.getPartiellementPayeeInvoices(selectedYear, selectedRegionBulletin),
-        dashboardService.getOverdueInvoices(selectedYear, selectedRegionBulletin),
-        dashboardService.getRejeteesInvoices(selectedYear, selectedRegionBulletin),
-      ]);
-      
-      let invoices = [...nonPayee, ...bonAPayer, ...payee, ...partiellementPayee, ...echue, ...rejetee] as any[];
-      
-      // Filtrer uniquement les bulletins de liquidation du fournisseur
-      invoices = invoices.filter(inv => 
-        inv['Catégorie de charge'] === 'Bulletin de liquidation' && 
-        inv.Fournisseur === fournisseur
-      );
-
-      // Supprimer les doublons
-      const seen = new Set();
-      invoices = invoices.filter((inv) => {
-        const key = inv['Numéro de facture'];
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      // Charger les paiements pour filtrer
-      const { data: paiements } = await supabase
-        .from('PAIEMENTS')
-        .select('NumeroFacture, montantPaye');
-
-      const paymentMap = new Map<string, number>();
-      if (paiements) {
-        paiements.forEach((p: any) => {
-          const invoiceNumber = p.NumeroFacture;
-          const paid = (paymentMap.get(invoiceNumber) || 0) + (parseFloat(p.montantPaye) || 0);
-          paymentMap.set(invoiceNumber, paid);
-        });
-      }
-
-      // Appliquer le filtre selon le type
-      if (filterType === 'paid') {
-        invoices = invoices.filter(inv => {
-          const montant = parseFloat(inv.Montant) || 0;
-          const invoiceNumber = inv['Numéro de facture'];
-          const amountPaid = paymentMap.get(invoiceNumber) || 0;
-          return amountPaid >= montant && montant > 0;
-        });
-      } else if (filterType === 'unpaid') {
-        invoices = invoices.filter(inv => {
-          const invoiceNumber = inv['Numéro de facture'];
-          const amountPaid = paymentMap.get(invoiceNumber) || 0;
-          return amountPaid === 0;
-        });
-      } else if (filterType === 'rejected') {
-        invoices = invoices.filter(inv => {
-          const statut = inv['Statut']?.toLowerCase() || '';
-          return statut.includes('rejet');
-        });
-      }
-
-      setModal({
-        isOpen: true,
-        type: null,
-        invoices: invoices as Invoice[],
-        title: `Bulletins - ${fournisseur}`,
-        summary: {},
-      });
-    } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal bulletin:', err);
-    }
-  };
-
-  const openModalByAge = async (
-    ageRange: 'zero30' | 'thirty60' | 'sixty90' | 'plus90',
-    title: string,
-    supplier?: string
-  ) => {
-    try {
-      const invoices = await dashboardService.getInvoicesByAgeRange(ageRange, selectedYear, supplier, selectedRegionBulletin);
-      
-      setModal({
-        isOpen: true,
-        type: 'total',
-        invoices,
-        title,
-        summary: {}
-      });
-    } catch (err) {
-      console.error('Erreur lors du chargement des factures par âge:', err);
-    }
-  };
-
-  const openModal = async (type: ModalState['type']) => {
-    try {
-      let invoices: Invoice[] = [];
-      let summary: { totalAmount?: number; totalPaid?: number; totalRemaining?: number } | undefined = undefined;
-
-      switch (type) {
-        case 'total': {
-          // Debug log
-          console.log('DEBUG: openModal total - selectedRegionBulletin:', selectedRegionBulletin);
-          
-          // Fetch all invoices from all categories
-          const [nonPayee, bonAPayer, payee, partiellementPayee, echue, rejetee] = await Promise.all([
-            dashboardService.getNonPayeeInvoices(selectedYear, selectedRegionBulletin),
-            dashboardService.getBonAPayerInvoices(selectedYear, selectedRegionBulletin),
-            dashboardService.getPayeeInvoices(selectedYear, selectedRegionBulletin),
-            dashboardService.getPartiellementPayeeInvoices(selectedYear, selectedRegionBulletin),
-            dashboardService.getOverdueInvoices(selectedYear, selectedRegionBulletin),
-            dashboardService.getRejeteesInvoices(selectedYear, selectedRegionBulletin),
-          ]);
-          invoices = [...nonPayee, ...bonAPayer, ...payee, ...partiellementPayee, ...echue, ...rejetee];
-          // Remove duplicates based on invoice number
-          const seen = new Set();
-          invoices = invoices.filter((inv) => {
-            const key = inv['Numéro de facture'];
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          });
-          summary = {
-            totalAmount: stats?.totalMontant,
-          };
-          break;
+      if (activeTab === 'ouest') {
+        switch (filterType) {
+          case 'total':
+            break;
+          case 'withManifeste':
+            query = query.not('date_obtention_manifeste', 'is', null);
+            break;
+          case 'withTexoValide':
+            query = query.not('texo_date_validation', 'is', null);
+            break;
+          case 'withDexoValide':
+            query = query.not('dexo_date_validation', 'is', null);
+            break;
+          case 'withIm4Bulletin':
+            query = query.not('im4_date_bulletin', 'is', null);
+            break;
+          case 'withIm4Paiement':
+            query = query.not('im4_date_paiement', 'is', null);
+            break;
+          case 'withIm4Quittance':
+            query = query.not('im4_date_quittance', 'is', null);
+            break;
+          case 'withIm4Bae':
+            query = query.not('im4_date_bae', 'is', null);
+            break;
+          case 'enCours':
+            query = query.is('im4_date_bae', null);
+            break;
+          case 'termines':
+            query = query.not('im4_date_bae', 'is', null);
+            break;
         }
-        case 'nonPayee':
-          invoices = await dashboardService.getNonPayeeInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.nonPayeeMontant,
-          };
-          break;
-        case 'bonAPayer':
-          invoices = await dashboardService.getBonAPayerInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.bonAPayerMontant,
-          };
-          break;
-        case 'enAttenteValidation':
-          invoices = await dashboardService.getEnAttenteValidationInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.enAttenteValidationMontant,
-          };
-          break;
-        case 'payee':
-          invoices = await dashboardService.getPayeeInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.payeeMontant,
-          };
-          break;
-        case 'partiellementPayee':
-          invoices = await dashboardService.getPartiellementPayeeInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.partiellementPayeeMontantTotal,
-            totalPaid: stats?.partiellementPayeeMontantPaye,
-            totalRemaining: stats?.partiellementPayeeReste,
-          };
-          break;
-        case 'echue':
-          invoices = await dashboardService.getOverdueInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.echueMontant,
-          };
-          break;
-        case 'rejetee':
-          invoices = await dashboardService.getRejeteesInvoices(selectedYear, selectedRegionBulletin);
-          summary = {
-            totalAmount: stats?.rejeteeMontant,
-          };
-          break;
+      } else {
+        switch (filterType) {
+          case 'total':
+            break;
+          case 'withSaisieIeIc':
+            query = query.not('date_saisie_ie_ic', 'is', null);
+            break;
+          case 'withValidationIeIcClient':
+            query = query.not('date_validation_ie_ic_client', 'is', null);
+            break;
+          case 'withValidationIeIcDrf':
+            query = query.not('date_validation_ie_ic_drf', 'is', null);
+            break;
+          case 'withDepotDa':
+            query = query.not('date_depot_da', 'is', null);
+            break;
+          case 'withValidationDa':
+            query = query.not('date_validation_da', 'is', null);
+            break;
+          case 'withRetrait':
+            query = query.not('date_retrait', 'is', null);
+            break;
+          case 'withSoumissionIm4':
+            query = query.not('date_soumission_im4', 'is', null);
+            break;
+          case 'withBulletin':
+            query = query.not('date_bulletin', 'is', null);
+            break;
+          case 'withQuittance':
+            query = query.not('date_quittance', 'is', null);
+            break;
+          case 'enCours':
+            query = query.is('date_quittance', null);
+            break;
+          case 'termines':
+            query = query.not('date_quittance', 'is', null);
+            break;
+        }
       }
-
-      // Filter by region if selected (now redundant since services already filter)
-      // if (selectedRegionBulletin) {
-      //   invoices = invoices.filter((inv: any) => inv['Région'] === selectedRegionBulletin);
-      // }
-
-      setModal({
-        isOpen: true,
-        type,
-        invoices,
-        summary
-      });
+      
+      const { data } = await query;
+      return data || [];
     } catch (err) {
-      console.error('Erreur lors de l\'ouverture du modal:', err);
+      console.error('Error loading dossiers:', err);
+      return [];
     }
+  };
+
+  const openModal = async (filterType: string, title: string) => {
+    const data = await loadDossiersByFilter(filterType);
+    setModal({ isOpen: true, title, data });
   };
 
   const closeModal = () => {
-    setModal({
-      isOpen: false,
-      type: null,
-      invoices: [],
-      title: '',
-    });
-  };
-
-  const getModalTitle = () => {
-    // If a custom title was provided, use it
-    if (modal.title) {
-      return modal.title;
-    }
-
-    // Otherwise, generate based on type
-    switch (modal.type) {
-      case 'total':
-        return 'Total Factures';
-      case 'nonPayee':
-        return 'Factures Non Payées';
-      case 'bonAPayer':
-        return 'Facture Bon à Payer';
-      case 'enAttenteValidation':
-        return 'En attente de validation';
-      case 'payee':
-        return 'Factures Payées';
-      case 'partiellementPayee':
-        return 'Factures Payées Partiellement';
-      case 'echue':
-        return 'Factures Échues';
-      case 'rejetee':
-        return 'Factures Rejetées';
-      default:
-        return 'Détails';
-    }
-  };
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 1: // Global
-        if (loading) {
-          return (
-            <div className="space-y-8">
-              <div className="space-y-6 pt-6">
-                {/* Skeleton pour les 4 cartes principales */}
-                <div className="grid grid-cols-4 gap-6">
-                  <SkeletonCard />
-                  <SkeletonCard />
-                  <SkeletonCard />
-                  <SkeletonCard />
-                </div>
-                
-                {/* Skeleton pour la deuxième rangée */}
-                <div className="grid grid-cols-3 gap-6">
-                  <SkeletonCard />
-                  <SkeletonCard />
-                  <SkeletonCard />
-                </div>
-                
-                {/* Skeleton pour le graphique */}
-                <div className="bg-white rounded-lg shadow-sm p-6">
-                  <div className="animate-pulse">
-                    <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-                    <div className="h-64 bg-gray-200 rounded"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        }
-        if (error) {
-          return <div className="text-center py-8 text-red-600">{error}</div>;
-        }
-        return (
-          <div className="space-y-8">
-            <div className="space-y-6 pt-6">
-                {/* Rangée 1: 4 colonnes */}
-                <div className="grid grid-cols-4 gap-6">
-                  <StatCard
-                    label="Total Factures"
-                    value={stats?.totalMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.totalFactures || 0}
-                    bgColor="bg-gradient-to-br from-purple-500 to-purple-600"
-                    textColor="text-white"
-                    onDetailClick={() => openModal('total')}
-                    variant="compact"
-                    icon="calculator"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Factures Non Payées"
-                    value={stats?.nonPayeeMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.nonPayeeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-pink-400 to-pink-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModal('nonPayee')}
-                    variant="compact"
-                    icon="x-circle"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Facture Bon à Payer"
-                    value={stats?.bonAPayerMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.bonAPayerCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-orange-400 to-yellow-400"
-                    textColor="text-white"
-                    onDetailClick={() => openModal('bonAPayer')}
-                    variant="compact"
-                    icon="alert"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Facture Payée"
-                    value={stats?.payeeMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.payeeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-green-400 to-emerald-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModal('payee')}
-                    variant="compact"
-                    icon="trending"
-                    onHover={true}
-                  />
-                </div>
-
-                {/* Rangée 2: 4 colonnes */}
-                <div className="grid grid-cols-4 gap-6">
-                  <StatCard
-                    label="Facture Payée Partiellement"
-                    value={stats?.partiellementPayeeReste || 0}
-                    currency="USD"
-                    montantPaye={stats?.partiellementPayeeMontantTotal}
-                    montantReste={stats?.partiellementPayeeMontantPaye}
-                    labelMontantPaye="Total"
-                    labelMontantReste="Payé"
-                    nombreFactures={stats?.partiellementPayeeCount || 0}
-                    bgColor="bg-blue-600"
-                    textColor="text-gray-700"
-                    onDetailClick={() => openModal('partiellementPayee')}
-                    variant="default"
-                  />
-                  <StatCard
-                    label="Facture Échue"
-                    value={stats?.echueMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.echueeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-red-600"
-                    textColor="text-gray-700"
-                    onDetailClick={() => openModal('echue')}
-                    variant="default"
-                  />
-                  <StatCard
-                    label={selectedMonth === 'all' ? `Top Fournisseur - ${selectedYear}` : `Top Fournisseur - ${new Date(`2000-${selectedMonth}-01`).toLocaleString('fr-FR', { month: 'long' }).charAt(0).toUpperCase()}${new Date(`2000-${selectedMonth}-01`).toLocaleString('fr-FR', { month: 'long' }).slice(1)} ${selectedYear}`}
-                    fournisseur={topSupplier?.fournisseur || 'N/A'}
-                    value={topSupplier?.montantTotal || 0}
-                    currency="USD"
-                    subtitle="Montant total"
-                    nombreFactures={topSupplier?.nombreFactures || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-indigo-600"
-                    textColor="text-gray-700"
-                    onDetailClick={openTop10Modal}
-                    variant="default"
-                  />
-                  <StatCard
-                    label="Facture Rejetée"
-                    value={stats?.rejeteeMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.rejeteeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gray-600"
-                    textColor="text-gray-700"
-                    onDetailClick={() => openModal('rejetee')}
-                    variant="default"
-                  />
-                </div>
-            </div>
-
-            <div className="space-y-6">
-                <div className="grid grid-cols-4 gap-6">
-                  <StatCard
-                    label="Factures à impact opérationnel"
-                    value={blockingCharges.reduce((sum, c) => sum + c.montantTotal, 0)}
-                    currency="USD"
-                    nombreFactures={blockingCharges.reduce((sum, c) => sum + c.nombreFactures, 0)}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-red-600"
-                    textColor="text-white"
-                    onDetailClick={() => setActiveTab(3)}
-                  />
-                  <StatCard
-                    label="Urgentes"
-                    value={urgencyStats?.urgentes.montant || 0}
-                    currency="USD"
-                    nombreFactures={urgencyStats?.urgentes.count || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-red-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalByUrgency('urgentes', 'Factures Urgentes')}
-                  />
-                  <StatCard
-                    label="En attente de validation"
-                    value={stats?.enAttenteValidationMontant || 0}
-                    currency="USD"
-                    nombreFactures={stats?.enAttenteValidationCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-orange-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModal('enAttenteValidation')}
-                  />
-                  <StatCard
-                    label="Normales"
-                    value={urgencyStats?.normales.montant || 0}
-                    currency="USD"
-                    nombreFactures={urgencyStats?.normales.count || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-green-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalByUrgency('normales', 'Factures Normales')}
-                  />
-                </div>
-            </div>
-
-            {/* Graphique mensuel */}
-            <MonthlyInvoiceChart data={monthlyData} loading={loading} />
-          </div>
-        );
-
-      case 2: // Bulletin de Liquidation
-        return (
-          <div className="space-y-8">
-            {/* Catégorie: General - Bulletin de Liquidation */}
-            <div>
-              <div className="space-y-6 pt-6">
-                {/* Rangée 1: 4 colonnes */}
-                <div className="grid grid-cols-4 gap-6">
-                  <StatCard
-                    label="Total Bulletins"
-                    value={bulletinGlobalStats?.totalMontant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinGlobalStats?.totalFactures || 0}
-                    bgColor="bg-gradient-to-br from-purple-500 to-purple-600"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('total', 'Total Bulletins - Bulletin de Liquidation')}
-                    variant="compact"
-                    icon="calculator"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Bulletin Non Payé"
-                    value={bulletinGlobalStats?.nonPayeeMontant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinGlobalStats?.nonPayeeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-pink-400 to-pink-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('nonPayee', 'Bulletins Non Payés - Bulletin de Liquidation')}
-                    variant="compact"
-                    icon="x-circle"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Bulletin Bon à Payer"
-                    value={bulletinGlobalStats?.bonAPayerMontant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinGlobalStats?.bonAPayerCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-orange-400 to-yellow-400"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('bonAPayer', 'Bulletins Bon à Payer - Bulletin de Liquidation')}
-                    variant="compact"
-                    icon="alert"
-                    onHover={true}
-                  />
-                  <StatCard
-                    label="Bulletin Payé"
-                    value={bulletinGlobalStats?.payeeMontant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinGlobalStats?.payeeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-gradient-to-br from-green-400 to-emerald-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('payee', 'Bulletins Payés - Bulletin de Liquidation')}
-                    variant="compact"
-                    icon="trending"
-                    onHover={true}
-                  />
-                </div>
-
-                {/* Rangée 2: 4 colonnes */}
-                <div className="grid grid-cols-4 gap-6">
-                  <StatCard
-                    label="Bulletin Payé Partiellement"
-                    value={bulletinGlobalStats?.partiellementPayeeReste || 0}
-                    currency="USD"
-                    montantPaye={bulletinGlobalStats?.partiellementPayeeMontantTotal}
-                    montantReste={bulletinGlobalStats?.partiellementPayeeMontantPaye}
-                    labelMontantPaye="Total"
-                    labelMontantReste="Payé"
-                    nombreFactures={bulletinGlobalStats?.partiellementPayeeCount || 0}
-                    bgColor="bg-blue-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('partiellementPayee', 'Bulletins Payés Partiellement - Bulletin de Liquidation')}
-                  />
-                  <StatCard
-                    label="Bulletin Échu"
-                    value={bulletinGlobalStats?.echueMontant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinGlobalStats?.echueeCount || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-red-600"
-                    textColor="text-white"
-                    onDetailClick={() => openModalForBulletinByType('echue', 'Bulletins Échus - Bulletin de Liquidation')}
-                  />
-                  <StatCard
-                    label="Urgentes"
-                    value={bulletinUrgencyStats?.urgentes.montant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinUrgencyStats?.urgentes.count || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-red-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalByUrgency('urgentes', 'Bulletins Urgents - Bulletin de Liquidation')}
-                  />
-                  <StatCard
-                    label="Normales"
-                    value={bulletinUrgencyStats?.normales.montant || 0}
-                    currency="USD"
-                    nombreFactures={bulletinUrgencyStats?.normales.count || 0}
-                    montantPaye={0}
-                    montantReste={0}
-                    bgColor="bg-green-500"
-                    textColor="text-white"
-                    onDetailClick={() => openModalByUrgency('normales', 'Bulletins Normaux - Bulletin de Liquidation')}
-                  />
-                </div>
-              </div>
-            </div>
-
-            
-            {/* Tableau par fournisseur */}
-            <div className="mt-8">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                  <h3 className="text-lg font-semibold text-gray-800">Tableau par fournisseur - Bulletin de Liquidation</h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm font-medium text-gray-700">Région</label>
-                  {agent?.REGION === 'TOUT' ? (
-                    <select 
-                      value={selectedRegionBulletin || ''}
-                      onChange={(e) => setSelectedRegionBulletin(e.target.value || undefined)}
-                      className="px-3 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Toutes les régions</option>
-                      <option value="OUEST">OUEST</option>
-                      <option value="EST">EST</option>
-                      <option value="SUD">SUD</option>
-                      <option value="NORD">NORD</option>
-                    </select>
-                  ) : (
-                    <select 
-                      value={selectedRegionBulletin || ''}
-                      disabled
-                      className="px-3 py-1 text-sm border border-gray-300 rounded bg-gray-100 cursor-not-allowed"
-                    >
-                      <option value={agent?.REGION}>{agent?.REGION}</option>
-                    </select>
-                  )}
-                </div>
-              </div>
-              <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">Fournisseur</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700">Total</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700">Payé</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700">Non payé</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700">Rejeté</th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700">Nombre</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {bulletinSupplierData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-xs text-gray-800 font-medium">{row.fournisseur}</td>
-                        <td 
-                          className="px-4 py-3 text-xs text-right text-blue-600 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalForBulletinFromTable(row.fournisseur, 'all')}
-                          title="Cliquer pour voir tous les bulletins"
-                        >
-                          {formatCurrency(row.totalMontant)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-right text-green-600 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalForBulletinFromTable(row.fournisseur, 'paid')}
-                          title="Cliquer pour voir les bulletins payés"
-                        >
-                          {formatCurrency(row.totalPaid)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-right text-orange-600 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalForBulletinFromTable(row.fournisseur, 'unpaid')}
-                          title="Cliquer pour voir les bulletins non payés"
-                        >
-                          {formatCurrency(row.totalUnpaid)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-right text-red-600 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalForBulletinFromTable(row.fournisseur, 'rejected')}
-                          title="Cliquer pour voir les bulletins rejetés"
-                        >
-                          {formatCurrency(row.totalRejected)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-center text-blue-600 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalForBulletinFromTable(row.fournisseur, 'all')}
-                          title="Cliquer pour voir tous les bulletins"
-                        >
-                          {row.count}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 3: // Factures à impact opérationnel
-        return (
-          <div className="space-y-6">
-            {loading ? (
-              <SkeletonGrid count={6} columns={3} />
-            ) : blockingCharges.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">Aucune charge bloquante</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {blockingCharges.map((charge, index) => {
-                  // Assign colors based on index
-                  const colors = [
-                    'bg-gradient-to-br from-red-500 to-red-600',
-                    'bg-gradient-to-br from-orange-500 to-orange-600',
-                    'bg-gradient-to-br from-yellow-500 to-yellow-600',
-                    'bg-gradient-to-br from-pink-500 to-pink-600',
-                    'bg-gradient-to-br from-purple-500 to-purple-600',
-                    'bg-gradient-to-br from-indigo-500 to-indigo-600',
-                  ];
-                  const color = colors[index % colors.length];
-
-                  return (
-                    <StatCard
-                      key={charge.id}
-                      label={charge.designation}
-                      value={charge.montantNonPaye}
-                      currency="USD"
-                      nombreFactures={charge.nombreFactures}
-                      bgColor={color}
-                      textColor="text-white"
-                      montantPaye={charge.montantTotal}
-                      montantReste={charge.montantPaye}
-                      labelMontantPaye="Total"
-                      labelMontantReste="Payé"
-                      onDetailClick={() => openModalByChargeCategory(charge.designation, charge.designation)}
-                    />
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-
-      case 4: // Balance agé
-        return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-4 gap-6">
-              <StatCard
-                label="0-30 jours"
-                value={ageStats?.zero30.montant ?? 0}
-                currency="USD"
-                bgColor="bg-gradient-to-br from-green-600 to-green-700"
-                textColor="text-white"
-                nombreFactures={ageStats?.zero30.count || 0}
-                onDetailClick={() => openModalByAge('zero30', 'Factures 0-30 jours')}
-              />
-              <StatCard
-                label="31-60 jours"
-                value={ageStats?.thirty60.montant ?? 0}
-                currency="USD"
-                bgColor="bg-gradient-to-br from-yellow-600 to-yellow-700"
-                textColor="text-white"
-                nombreFactures={ageStats?.thirty60.count || 0}
-                onDetailClick={() => openModalByAge('thirty60', 'Factures 31-60 jours')}
-              />
-              <StatCard
-                label="61-90 jours"
-                value={ageStats?.sixty90.montant ?? 0}
-                currency="USD"
-                bgColor="bg-gradient-to-br from-orange-600 to-orange-700"
-                textColor="text-white"
-                nombreFactures={ageStats?.sixty90.count || 0}
-                onDetailClick={() => openModalByAge('sixty90', 'Factures 61-90 jours')}
-              />
-              <StatCard
-                label="+90 jours"
-                value={ageStats?.plus90.montant ?? 0}
-                currency="USD"
-                bgColor="bg-gradient-to-br from-red-600 to-red-700"
-                textColor="text-white"
-                nombreFactures={ageStats?.plus90.count || 0}
-                onDetailClick={() => openModalByAge('plus90', 'Factures +90 jours')}
-              />
-            </div>
-
-            {/* Tableau par fournisseur */}
-            <div className="mt-8">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-                <h3 className="text-lg font-semibold text-gray-800">Tableau par fournisseur</h3>
-              </div>
-              <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">Fournisseur</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">0-30</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">31-60</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">61-90</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">+90</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {supplierAgeData.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-xs text-gray-800">{row.fournisseur}</td>
-                        <td 
-                          className="px-4 py-3 text-xs text-green-700 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalByAge('zero30', `Factures ${row.fournisseur} - 0-30 jours`, row.fournisseur)}
-                        >
-                          {formatCurrency(row.zero30)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-yellow-700 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalByAge('thirty60', `Factures ${row.fournisseur} - 31-60 jours`, row.fournisseur)}
-                        >
-                          {formatCurrency(row.thirty60)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-orange-700 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalByAge('sixty90', `Factures ${row.fournisseur} - 61-90 jours`, row.fournisseur)}
-                        >
-                          {formatCurrency(row.sixty90)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs text-red-700 font-semibold cursor-pointer hover:underline"
-                          onClick={() => openModalByAge('plus90', `Factures ${row.fournisseur} - +90 jours`, row.fournisseur)}
-                        >
-                          {formatCurrency(row.plus90)}
-                        </td>
-                        <td 
-                          className="px-4 py-3 text-xs font-semibold text-gray-900 cursor-pointer hover:underline"
-                          onClick={() => openModal('total')}
-                        >
-                          {formatCurrency(row.total)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        );
-
-      case 5: // Centre des coûts
-        return (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {costCenterData.map((center) => {
-                // Couleurs pour les barres gauche selon l'index
-                const colors = [
-                  'bg-blue-600',
-                  'bg-green-600',
-                  'bg-purple-600',
-                  'bg-orange-600',
-                  'bg-red-600',
-                  'bg-indigo-600',
-                  'bg-pink-600',
-                  'bg-yellow-600',
-                  'bg-teal-600',
-                  'bg-gray-600'
-                ];
-                const bgColor = colors[costCenterData.indexOf(center) % colors.length];
-                
-                return (
-                  <StatCard
-                    key={center.centre}
-                    label={center.centre}
-                    value={center.montantNonPaye}
-                    currency="USD"
-                    nombreFactures={center.nombreFactures}
-                    bgColor={bgColor}
-                    textColor="text-gray-700"
-                    montantPaye={center.montant}
-                    montantReste={center.montantPaye}
-                    labelMontantPaye="Total"
-                    labelMontantReste="Payé"
-                    onDetailClick={() => openModalByCostCenter(center.centre, `Factures - ${center.centre}`)}
-                    variant="default"
-                  />
-                );
-              })}
-            </div>
-            
-            {costCenterData.length === 0 && (
-              <div className="text-center py-12 text-gray-500">
-                Aucun centre de coûts disponible
-              </div>
-            )}
-          </div>
-        );
-
-      case 6: // Fournisseur - Catégories
-        return (
-          <div className="space-y-6">
-            {selectedSupplierCategory ? (
-              // Affichage détail d'une catégorie en cartes colorées
-              <div>
-                <button
-                  onClick={() => setSelectedSupplierCategory(null)}
-                  className="mb-4 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-                >
-                  ← Retour aux catégories
-                </button>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {suppliersByCategory.map((supplier, idx) => {
-                    const colors = ['bg-blue-500', 'bg-purple-500', 'bg-pink-500', 'bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500', 'bg-cyan-500', 'bg-indigo-500', 'bg-teal-500'];
-                    const bgColor = colors[idx % colors.length];
-                    
-                    return (
-                      <div
-                        key={supplier.fournisseur}
-                        onClick={() => {
-                          setSelectedSupplierForModal(supplier.fournisseur);
-                          setSupplierModalLoading(true);
-                        }}
-                        className={`${bgColor} rounded-lg p-6 text-white cursor-pointer transform transition-all duration-300 hover:scale-105 hover:shadow-2xl`}
-                      >
-                        <h4 className="text-lg font-bold mb-4">{supplier.fournisseur}</h4>
-                        
-                        {/* Solde à payer - prominent */}
-                        <div className="mb-4">
-                          <p className="text-xs opacity-90 mb-1">SOLDE À PAYER</p>
-                          <p className="text-3xl font-bold">{formatCurrency(supplier.solde)}</p>
-                        </div>
-
-                        {/* Mini info grid */}
-                        <div className="grid grid-cols-3 gap-3 text-sm border-t border-white border-opacity-20 pt-3">
-                          <div>
-                            <p className="text-xs opacity-80">Total</p>
-                            <p className="font-bold">{formatCurrency(supplier.montant)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs opacity-80">Payé</p>
-                            <p className="font-bold">{formatCurrency(supplier.montantPaye)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs opacity-80">Factures</p>
-                            <p className="font-bold">{supplier.nombreFactures}</p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              // Affichage des catégories
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {supplierCategories.map((category) => (
-                  <div
-                    key={category.category}
-                    onClick={() => {
-                      setSelectedSupplierCategory(category.category);
-                      loadSuppliersByCategory(category.category);
-                    }}
-                    className={`${category.color} rounded-lg p-6 text-white cursor-pointer transform transition-all duration-300 hover:scale-105 hover:shadow-2xl`}
-                  >
-                    <h3 className="text-lg font-bold mb-4">{category.category}</h3>
-                    
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      {/* Factures */}
-                      <div className="bg-white bg-opacity-20 rounded p-3">
-                        <p className="text-xs opacity-90">Factures</p>
-                        <p className="text-2xl font-bold">{category.count}</p>
-                      </div>
-                      
-                      {/* Fournisseurs */}
-                      <div className="bg-white bg-opacity-20 rounded p-3">
-                        <p className="text-xs opacity-90">Fournisseurs</p>
-                        <p className="text-2xl font-bold">{category.nombreFournisseurs}</p>
-                      </div>
-                      
-                      {/* Total */}
-                      <div className="bg-white bg-opacity-20 rounded p-3">
-                        <p className="text-xs opacity-90">Total</p>
-                        <p className="text-sm font-bold">{formatCurrency(category.montant)}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 text-sm border-t border-white border-opacity-20 pt-3">
-                      {/* Payé */}
-                      <div>
-                        <p className="text-xs opacity-80">Payé</p>
-                        <p className="font-bold">{formatCurrency(category.montantPaye)}</p>
-                      </div>
-                      
-                      {/* Solde à payer */}
-                      <div className="text-right">
-                        <p className="text-xs opacity-80">Solde à payer</p>
-                        <p className="font-bold">{formatCurrency(category.soldeAPayer)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            {supplierCategories.length === 0 && !selectedSupplierCategory && (
-              <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-                <div className="mb-6 relative w-32 h-32">
-                  <svg
-                    className="w-full h-full animate-bounce"
-                    viewBox="0 0 200 200"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                  >
-                    {/* Boîte vide */}
-                    <rect x="40" y="60" width="120" height="90" rx="8" fill="none" stroke="currentColor" strokeWidth="2" />
-                    {/* Couvercle ouvert */}
-                    <line x1="40" y1="60" x2="20" y2="40" stroke="currentColor" strokeWidth="2" />
-                    <line x1="160" y1="60" x2="180" y2="40" stroke="currentColor" strokeWidth="2" />
-                    {/* Ligne de fermeture */}
-                    <path d="M 20 40 L 30 30 L 170 30 L 180 40" fill="none" stroke="currentColor" strokeWidth="2" />
-                    {/* Point d'interrogation */}
-                    <circle cx="100" cy="105" r="25" fill="none" stroke="currentColor" strokeWidth="2" opacity="0.3" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-gray-600 mb-2">Aucune catégorie de fournisseur</h3>
-                <p className="text-sm text-gray-500 mb-4">Aucune facture disponible pour les critères sélectionnés</p>
-                <button
-                  onClick={handleRefresh}
-                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors duration-200 flex items-center gap-2"
-                >
-                  <RefreshCw size={16} />
-                  Actualiser
-                </button>
-              </div>
-            )}
-          </div>
-        );
-
-      default:
-        return null;
-    }
+    setModal({ isOpen: false, title: '', data: [] });
   };
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      
-      {/* Top Progress Bar */}
-      <TopProgressBar isLoading={loading} />
-      
-      <div className="bg-gray-200 pr-4 pl-4 pt-2 pb-0 sticky top-0 z-40">
-        <div className="rounded-lg mb-[-0px]">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-            <div className="flex items-center gap-6">
-              {/* Onglets par région */}
-              <div className="flex gap-2 ">
-                {agent?.REGION === 'TOUT' && (
-                  <button
-                    onClick={() => setSelectedRegionBulletin(undefined)}
-                    className={`px-4 py-2 rounded-full font-semibold text-xs transition-all duration-200 ${
-                      selectedRegionBulletin === undefined
-                        ? 'bg-red-700 text-white shadow-md'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    Toutes
-                  </button>
-                )}
-                {agent?.REGION === 'TOUT' ? (
-                  regions.map((region) => (
-                    <button
-                      key={region}
-                      onClick={() => setSelectedRegionBulletin(region)}
-                      className={`px-4 py-2 rounded-full font-semibold text-xs transition-all duration-200 ${
-                        selectedRegionBulletin === region
-                          ? 'bg-red-700 text-white shadow-md'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {region}
-                    </button>
-                  ))
-                ) : (
-                  <button
-                    className="px-4 py-2 rounded-full font-semibold text-xs bg-red-700 text-white shadow-md cursor-not-allowed opacity-75"
-                    disabled
-                    title={`Vous êtes limité à la région: ${agent?.REGION || 'N/A'}`}
-                  >
-                    {agent?.REGION || 'Région'}
-                  </button>
-                )}
-              </div>
-
-              {/* Sélecteur d'année */}
-              <select
-                value={selectedYear}
-                onChange={(e) => setSelectedYear(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="2024">2024</option>
-                <option value="2025">2025</option>
-                <option value="2026">2026</option>
-              </select>
-
-              {/* Sélecteur de mois */}
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">Tous les mois</option>
-                <option value="1">Janvier</option>
-                <option value="2">Février</option>
-                <option value="3">Mars</option>
-                <option value="4">Avril</option>
-                <option value="5">Mai</option>
-                <option value="6">Juin</option>
-                <option value="7">Juillet</option>
-                <option value="8">Août</option>
-                <option value="9">Septembre</option>
-                <option value="10">Octobre</option>
-                <option value="11">Novembre</option>
-                <option value="12">Décembre</option>
-              </select>
-
-              {/* Bouton d'actualisation */}
-              <button
-                onClick={handleRefresh}
-                className="p-2 hover:bg-gray-300 rounded-lg transition-colors duration-200"
-                title="Actualiser les données"
-              >
-                <RefreshCw size={20} className="text-gray-700" />
-              </button>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+              <p className="text-sm text-gray-500">Indicateurs Régularisation</p>
             </div>
-          </div>
-
-        <div className="flex">
-          {tabs.map((tab) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-6 py-3 text-sm transition-all duration-150 ease-out rounded-t-lg ${
-                activeTab === tab.id
-                  ? 'text-black bg-white shadow-sm font-bold'
-                  : 'text-gray-600'
+              onClick={handleRefresh}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span className="text-sm">Actualiser</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex space-x-8">
+            <button
+              onClick={() => handleTabChange('ouest')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'ouest'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              {tab.label}
+              Ouest
             </button>
-          ))}
-        </div>
-
-      </div>
-      </div>
-      
-
-      <div className="flex-1 bg-white rounded-lg shadow-sm p-6">
-        {loading && isInitialLoad ? (
-          <div className="space-y-8">
-            <div className="space-y-6 pt-6">
-              {/* Skeleton pour les 4 cartes principales */}
-              <div className="grid grid-cols-4 gap-6">
-                <SkeletonCard />
-                <SkeletonCard />
-                <SkeletonCard />
-                <SkeletonCard />
-              </div>
-              
-              {/* Skeleton pour la deuxième rangée */}
-              <div className="grid grid-cols-3 gap-6">
-                <SkeletonCard />
-                <SkeletonCard />
-                <SkeletonCard />
-              </div>
-              
-              {/* Skeleton pour le graphique */}
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <div className="animate-pulse">
-                  <div className="h-6 bg-gray-200 rounded w-1/4 mb-4"></div>
-                  <div className="h-64 bg-gray-200 rounded"></div>
-                </div>
-              </div>
-            </div>
+            <button
+              onClick={() => handleTabChange('est')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'est'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Est
+            </button>
+            <button
+              onClick={() => handleTabChange('sud')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'sud'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Sud
+            </button>
           </div>
-        ) : renderTabContent()}
+        </div>
       </div>
 
-      {/* Modal des détails factures */}
-      <InvoiceDetailModal
-        isOpen={modal.isOpen}
-        onClose={closeModal}
-        title={getModalTitle()}
-        invoices={modal.invoices}
-        summary={modal.summary}
-      />
-
-      {/* Modal Top 10 Fournisseurs */}
-      <Top10SuppliersModal
-        isOpen={top10Modal.isOpen}
-        onClose={closeTop10Modal}
-        suppliers={top10Suppliers}
-        loading={top10Loading}
-        year={selectedYear}
-      />
-
-      {/* Modal Détail Fournisseur */}
-      {selectedSupplierForModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
-            {/* Header */}
-            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">{selectedSupplierForModal}</h2>
-                <p className="text-xs text-gray-500 mt-1">Détail des factures</p>
+      {/* Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            Indicateurs Régularisation {activeTab === 'ouest' ? 'Ouest' : activeTab === 'est' ? 'Est' : 'Sud'}
+          </h3>
+          
+          {activeTab === 'ouest' ? (
+            <>
+              <div className="grid grid-cols-5 gap-4">
+                <StatCard
+                  label="Total Dossiers"
+                  value={regulCapitalStats?.totalDossiers || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.totalDossiers || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="calculator"
+                  onHover={true}
+                  borderColor="#a855f7"
+                  onDetailClick={() => openModal('total', 'Total Dossiers')}
+                />
+                <StatCard
+                  label="Avec Manifeste"
+                  value={regulCapitalStats?.withManifeste || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withManifeste || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#3b82f6"
+                  onDetailClick={() => openModal('withManifeste', 'Dossiers avec Manifeste')}
+                />
+                <StatCard
+                  label="TEXO Validé"
+                  value={regulCapitalStats?.withTexoValide || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withTexoValide || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#06b6d4"
+                  onDetailClick={() => openModal('withTexoValide', 'Dossiers TEXO Validé')}
+                />
+                <StatCard
+                  label="DEXO Validé"
+                  value={regulCapitalStats?.withDexoValide || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withDexoValide || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#14b8a6"
+                  onDetailClick={() => openModal('withDexoValide', 'Dossiers DEXO Validé')}
+                />
+                <StatCard
+                  label="IM4 Bulletin"
+                  value={regulCapitalStats?.withIm4Bulletin || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withIm4Bulletin || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#6366f1"
+                  onDetailClick={() => openModal('withIm4Bulletin', 'Dossiers IM4 Bulletin')}
+                />
               </div>
+              <div className="grid grid-cols-5 gap-4 mt-4">
+                <StatCard
+                  label="IM4 Paiement"
+                  value={regulCapitalStats?.withIm4Paiement || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withIm4Paiement || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="calculator"
+                  onHover={true}
+                  borderColor="#10b981"
+                  onDetailClick={() => openModal('withIm4Paiement', 'Dossiers IM4 Paiement')}
+                />
+                <StatCard
+                  label="IM4 Quittance"
+                  value={regulCapitalStats?.withIm4Quittance || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withIm4Quittance || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#22c55e"
+                  onDetailClick={() => openModal('withIm4Quittance', 'Dossiers IM4 Quittance')}
+                />
+                <StatCard
+                  label="IM4 BAE"
+                  value={regulCapitalStats?.withIm4Bae || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.withIm4Bae || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#84cc16"
+                  onDetailClick={() => openModal('withIm4Bae', 'Dossiers IM4 BAE')}
+                />
+                <StatCard
+                  label="En Cours"
+                  value={regulCapitalStats?.enCours || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.enCours || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="x-circle"
+                  onHover={true}
+                  borderColor="#f97316"
+                  onDetailClick={() => openModal('enCours', 'Dossiers En Cours')}
+                />
+                <StatCard
+                  label="Terminés"
+                  value={regulCapitalStats?.termines || 0}
+                  currency=""
+                  nombreDossiers={regulCapitalStats?.termines || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#4ade80"
+                  onDetailClick={() => openModal('termines', 'Dossiers Terminés')}
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-5 gap-4">
+                <StatCard
+                  label="Total Dossiers"
+                  value={regulProvincesStats?.totalDossiers || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.totalDossiers || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="calculator"
+                  onHover={true}
+                  borderColor="#a855f7"
+                  onDetailClick={() => openModal('total', 'Total Dossiers')}
+                />
+                <StatCard
+                  label="Saisie IE/IC"
+                  value={regulProvincesStats?.withSaisieIeIc || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withSaisieIeIc || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#3b82f6"
+                  onDetailClick={() => openModal('withSaisieIeIc', 'Dossiers avec Saisie IE/IC')}
+                />
+                <StatCard
+                  label="Valid. IE/IC Client"
+                  value={regulProvincesStats?.withValidationIeIcClient || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withValidationIeIcClient || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#06b6d4"
+                  onDetailClick={() => openModal('withValidationIeIcClient', 'Dossiers Valid. IE/IC Client')}
+                />
+                <StatCard
+                  label="Valid. IE/IC DRF"
+                  value={regulProvincesStats?.withValidationIeIcDrf || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withValidationIeIcDrf || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#14b8a6"
+                  onDetailClick={() => openModal('withValidationIeIcDrf', 'Dossiers Valid. IE/IC DRF')}
+                />
+                <StatCard
+                  label="Dépôt DA"
+                  value={regulProvincesStats?.withDepotDa || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withDepotDa || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#6366f1"
+                  onDetailClick={() => openModal('withDepotDa', 'Dossiers Dépôt DA')}
+                />
+              </div>
+              <div className="grid grid-cols-5 gap-4 mt-4">
+                <StatCard
+                  label="Valid. DA"
+                  value={regulProvincesStats?.withValidationDa || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withValidationDa || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="calculator"
+                  onHover={true}
+                  borderColor="#10b981"
+                  onDetailClick={() => openModal('withValidationDa', 'Dossiers Valid. DA')}
+                />
+                <StatCard
+                  label="Retrait"
+                  value={regulProvincesStats?.withRetrait || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withRetrait || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#22c55e"
+                  onDetailClick={() => openModal('withRetrait', 'Dossiers Retrait')}
+                />
+                <StatCard
+                  label="Soumission IM4"
+                  value={regulProvincesStats?.withSoumissionIm4 || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withSoumissionIm4 || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="alert"
+                  onHover={true}
+                  borderColor="#84cc16"
+                  onDetailClick={() => openModal('withSoumissionIm4', 'Dossiers Soumission IM4')}
+                />
+                <StatCard
+                  label="Bulletin"
+                  value={regulProvincesStats?.withBulletin || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withBulletin || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="x-circle"
+                  onHover={true}
+                  borderColor="#f97316"
+                  onDetailClick={() => openModal('withBulletin', 'Dossiers Bulletin')}
+                />
+                <StatCard
+                  label="Quittance"
+                  value={regulProvincesStats?.withQuittance || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.withQuittance || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#4ade80"
+                  onDetailClick={() => openModal('withQuittance', 'Dossiers Quittance')}
+                />
+              </div>
+              <div className="grid grid-cols-5 gap-4 mt-4">
+                <StatCard
+                  label="En Cours"
+                  value={regulProvincesStats?.enCours || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.enCours || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="x-circle"
+                  onHover={true}
+                  borderColor="#f97316"
+                  onDetailClick={() => openModal('enCours', 'Dossiers En Cours')}
+                />
+                <StatCard
+                  label="Terminés"
+                  value={regulProvincesStats?.termines || 0}
+                  currency=""
+                  nombreDossiers={regulProvincesStats?.termines || 0}
+                  bgColor="bg-white"
+                  textColor="text-gray-900"
+                  variant="default"
+                  icon="trending"
+                  onHover={true}
+                  borderColor="#4ade80"
+                  onDetailClick={() => openModal('termines', 'Dossiers Terminés')}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Monthly Evolution Chart */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <MonthlyRegulChart 
+          data={monthlyStats}
+          loading={loadingChart}
+          title={`Évolution mensuelle - ${activeTab === 'ouest' ? 'Capital' : activeTab === 'est' ? 'Goma' : 'Lubumbashi'}`}
+        />
+      </div>
+
+      {/* Modal pour afficher la liste des dossiers */}
+      {modal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-xl font-bold text-gray-900">{modal.title}</h2>
               <button
-                onClick={() => setSelectedSupplierForModal(null)}
-                className="text-gray-500 hover:text-gray-700 text-xl"
+                onClick={closeModal}
+                className="text-gray-500 hover:text-gray-700"
               >
-                ✕
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
-
-            {/* Content */}
-            <div className="p-4">
-              {supplierModalLoading ? (
-                <div className="text-center py-6">
-                  <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                  <p className="text-xs text-gray-500 mt-2">Chargement...</p>
-                </div>
-              ) : supplierInvoices.length === 0 ? (
-                <div className="text-center py-6 text-xs text-gray-500">
-                  Aucune facture trouvée
-                </div>
+            <div className="p-4 overflow-y-auto max-h-[calc(80vh-80px)]">
+              {modal.data.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">Aucun dossier trouvé</p>
               ) : (
-                <div className="space-y-4">
-                  {/* Non payées */}
-                  {supplierInvoices.filter(f => f.solde > 0).length > 0 && (
-                    <div>
-                      <h3 className="text-base font-bold text-red-600 mb-2">
-                        À payer ({supplierInvoices.filter(f => f.solde > 0).length})
-                      </h3>
-                      <div className="space-y-2">
-                        {supplierInvoices
-                          .filter(f => f.solde > 0)
-                          .map((invoice) => (
-                            <div key={invoice.ID} className="border border-red-200 bg-red-50 rounded p-3 hover:bg-red-100 transition-colors">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <p
-                                    onClick={() => {
-                                      // Si paiement partiel (montantPaye > 0), ouvrir PaiementModal
-                                      if (invoice.montantPaye && invoice.montantPaye > 0) {
-                                        setInvoiceForPaiementModal(invoice);
-                                      } else {
-                                        // Sinon, ouvrir ViewInvoiceModal
-                                        setInvoiceForViewModal(invoice);
-                                      }
-                                    }}
-                                    className="text-sm font-semibold text-gray-900 cursor-pointer hover:text-blue-600 hover:underline"
-                                  >
-                                    {invoice['Numéro de facture']}
-                                  </p>
-                                  <p className="text-xs text-gray-600 mt-1">{new Date(invoice['Date de réception']).toLocaleDateString('fr-FR')}</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-sm font-bold text-red-600">{formatCurrency(invoice.solde)}</p>
-                                  <p className="text-xs text-gray-600">à payer</p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Payées */}
-                  {supplierInvoices.filter(f => f.solde === 0 && f.montantPaye > 0).length > 0 && (
-                    <div>
-                      <h3 className="text-base font-bold text-green-600 mb-2">
-                        Payées ({supplierInvoices.filter(f => f.solde === 0 && f.montantPaye > 0).length})
-                      </h3>
-                      <div className="space-y-2">
-                        {supplierInvoices
-                          .filter(f => f.solde === 0 && f.montantPaye > 0)
-                          .map((invoice) => (
-                            <div key={invoice.ID} className="border border-green-200 bg-green-50 rounded p-3 hover:bg-green-100 transition-colors">
-                              <div className="flex justify-between items-start">
-                                <div>
-                                  <p
-                                    onClick={() => setInvoiceForPaiementModal(invoice)}
-                                    className="text-sm font-semibold text-gray-900 cursor-pointer hover:text-blue-600 hover:underline"
-                                  >
-                                    {invoice['Numéro de facture']}
-                                  </p>
-                                  <p className="text-xs text-gray-600 mt-1">{new Date(invoice['Date de réception']).toLocaleDateString('fr-FR')}</p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-sm font-bold text-green-600">{formatCurrency(invoice.Montant)}</p>
-                                  <p className="text-xs text-gray-600">Payée</p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    {activeTab === 'ouest' ? (
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Référence</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Client</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Date Manifeste</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">TEXO Validé</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">DEXO Validé</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">IM4 BAE</th>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Référence</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Client</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Saisie IE/IC</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Valid. IE/IC Client</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Valid. IE/IC DRF</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Dépôt DA</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Valid. DA</th>
+                        <th className="px-4 py-2 text-left text-xs font-semibold text-gray-700">Quittance</th>
+                      </tr>
+                    )}
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {modal.data.map((dossier: any, index: number) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        {activeTab === 'ouest' ? (
+                          <>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.n_dossier || '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.client || '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_obtention_manifeste ? new Date(dossier.date_obtention_manifeste).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.texo_date_validation ? new Date(dossier.texo_date_validation).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.dexo_date_validation ? new Date(dossier.dexo_date_validation).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.im4_date_bae ? new Date(dossier.im4_date_bae).toLocaleDateString('fr-FR') : '-'}</td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.n_dossier || '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.client || '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_saisie_ie_ic ? new Date(dossier.date_saisie_ie_ic).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_validation_ie_ic_client ? new Date(dossier.date_validation_ie_ic_client).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_validation_ie_ic_drf ? new Date(dossier.date_validation_ie_ic_drf).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_depot_da ? new Date(dossier.date_depot_da).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_validation_da ? new Date(dossier.date_validation_da).toLocaleDateString('fr-FR') : '-'}</td>
+                            <td className="px-4 py-2 text-sm text-gray-900">{dossier.date_quittance ? new Date(dossier.date_quittance).toLocaleDateString('fr-FR') : '-'}</td>
+                          </>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               )}
             </div>
           </div>
         </div>
-      )}
-
-      {/* ViewInvoiceModal - pour les factures non payées */}
-      {invoiceForViewModal && (
-        <ViewInvoiceModal
-          invoice={{
-            id: invoiceForViewModal.ID,
-            invoiceNumber: invoiceForViewModal['Numéro de facture'],
-            supplier: selectedSupplierForModal || '',
-            receptionDate: invoiceForViewModal['Date de réception'],
-            amount: parseFloat(invoiceForViewModal.Montant) || 0,
-            currency: 'USD' as const,
-            chargeCategory: '',
-            urgencyLevel: 'Moyenne' as const,
-            status: (invoiceForViewModal.Statut?.toLowerCase() === 'payée' ? 'paid' : 'pending') as any,
-            region: 'OUEST' as const
-          }}
-          onClose={() => setInvoiceForViewModal(null)}
-        />
-      )}
-
-      {/* PaiementModal - en lecture seule pour les factures payées */}
-      {invoiceForPaiementModal && (
-        <PaiementModal
-          invoice={{
-            id: invoiceForPaiementModal.ID,
-            invoiceNumber: invoiceForPaiementModal['Numéro de facture'],
-            supplier: selectedSupplierForModal || '',
-            receptionDate: invoiceForPaiementModal['Date de réception'],
-            amount: parseFloat(invoiceForPaiementModal.Montant) || 0,
-            currency: 'USD' as const,
-            chargeCategory: '',
-            urgencyLevel: 'Moyenne' as const,
-            status: 'paid' as const,
-            region: 'OUEST' as const
-          }}
-          onClose={() => setInvoiceForPaiementModal(null)}
-          readOnly={true}
-        />
       )}
     </div>
   );

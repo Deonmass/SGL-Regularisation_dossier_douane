@@ -7,8 +7,8 @@ function Header() {
         <div className="flex items-center gap-3">
           <CheckSquare size={32} className="text-indigo-600" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">SGL PMD</h1>
-            <p className="text-sm text-gray-600">Gestionnaire de Projet</p>
+            <h1 className="text-2xl font-bold text-gray-800">SGL Dossier Douane</h1>
+            <p className="text-sm text-gray-600">Régularisation Dossier Douane</p>
           </div>
         </div>
         <div className="text-sm text-gray-600">

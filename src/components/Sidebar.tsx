@@ -1,29 +1,22 @@
-import { 
-  ChevronDown, 
-  Users, 
-  LayoutDashboard, 
-  Search, 
-  FileText, 
-  Plus, 
-  Clock, 
-  CheckCircle, 
-  DollarSign, 
-  AlertCircle, 
-  Calendar,
-  Settings,
-  Building,
-  Tag,
-  UserCheck,
-  MapPin,
-  CreditCard,
+import {
+  ChevronDown,
+  Users,
+  LayoutDashboard,
   LogOut,
-  Lock
+  Lock,
+  FileCheck,
+  Settings,
+  Map,
+  MapPin,
+  Building2,
+  Plus,
+  Truck,
+  FileText
 } from 'lucide-react';
 import { useState } from 'react';
 import Swal from 'sweetalert2';
 import bcryptjs from 'bcryptjs';
 import { useAuth } from '../contexts/AuthContext';
-import { usePermission } from '../hooks/usePermission';
 import { supabase } from '../services/supabase';
 
 interface SidebarProps {
@@ -33,59 +26,50 @@ interface SidebarProps {
 
 function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
   const { agent, signOut } = useAuth();
-  const { canView, canViewInvoiceTab } = usePermission();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   const navItems = [
     {
-      id: 'dashboard-factures',
+      id: 'dashboard',
       label: 'DASHBOARD',
       icon: LayoutDashboard,
     },
     {
-      id: 'search',
-      label: 'RECHERCHE ',
-      icon: Search,
-    },
-    {
-      id: 'factures',
-      label: 'FACTURES',
-      icon: FileText,
+      id: 'regularisation',
+      label: 'REGULARISATION',
+      icon: FileCheck,
       subItems: [
-        { id: 'factures-new', label: 'Nouvelle facture', icon: Plus },
-        { id: 'factures-pending', label: 'En attente validation DR', icon: Clock },
-        { id: 'factures-pending-dop', label: 'En attente validation DOP', icon: Clock },
-        { id: 'factures-rejected', label: 'Rejetée', icon: AlertCircle },
-        { id: 'factures-overdue', label: 'Facture Echues', icon: Calendar },
-        { id: 'factures-validated', label: 'Validée (bon à payer)', icon: CheckCircle },
-        { id: 'factures-payment-order', label: 'Ordre de paiement', icon: DollarSign },
-        { id: 'factures-paid', label: 'Payé', icon: DollarSign },
-        { id: 'factures-partially-paid', label: 'Partiellement payé', icon: DollarSign },
+        { id: 'regularisation-nouveau', label: 'Nouveau dossier', icon: Plus },
+        { id: 'regularisation-ouest', label: 'OUEST', icon: MapPin },
+        { id: 'regularisation-est', label: 'EST', icon: MapPin },
+        { id: 'regularisation-sud', label: 'SUD', icon: MapPin },
       ],
     },
     {
-      id: 'parameters',
+      id: 'parametres',
       label: 'PARAMETTRES',
       icon: Settings,
       subItems: [
-        { id: 'parameters-suppliers', label: 'Fournisseurs', icon: Building },
-        { id: 'parameters-charges', label: 'Types de charges', icon: Tag },
-        { id: 'parameters-centres', label: 'Centres de coût', icon: MapPin },
-        { id: 'parameters-caisses', label: 'Caisses', icon: Building },
-        { id: 'parameters-comptes', label: 'Comptes', icon: CreditCard },
+        { id: 'parametres-regions', label: 'Régions', icon: Map },
+        { id: 'parametres-point-entree', label: "Point d'entrée", icon: MapPin },
+        { id: 'parametres-bureau-douane', label: 'Bureau douane', icon: Building2 },
+        { id: 'parametres-mode-transport', label: 'Mode de transport', icon: Truck },
+        { id: 'parametres-regime-importation', label: 'Régime d\'importation', icon: FileText },
+        { id: 'parametres-client', label: 'Client', icon: Users },
       ],
     },
     {
       id: 'users',
       label: 'UTILISATEURS',
       icon: Users,
-      subItems: [
-        { id: 'parameters-agents', label: 'Utilisateurs', icon: UserCheck },
-      ],
     },
   ];
+
+  const handleMenuClick = (id: string) => {
+    onMenuChange(id);
+  };
 
   const toggleMenu = (id: string) => {
     setExpandedMenus(prev => {
@@ -95,10 +79,6 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         return [...prev, id];
       }
     });
-  };
-
-  const handleMenuClick = (id: string) => {
-    onMenuChange(id);
   };
 
   const isSubMenuActive = (subMenuId: string) => {
@@ -438,8 +418,8 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
             <LayoutDashboard size={20} className="text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">PMD</h1>
-            <p className="text-xs text-slate-400 font-medium">Dashboard</p>
+            <h1 className="text-lg font-bold tracking-tight uppercase">Régularisation</h1>
+            <p className="text-xs text-slate-400 font-medium">Dossier Douane</p>
           </div>
         </div>
       </div>
@@ -452,28 +432,13 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
 
           // Mapping des couleurs sombres et fines pour chaque menu
           const menuColorMap: { [key: string]: { bar: string; accent: string; activeBg: string } } = {
-            'dashboard-factures': { bar: 'bg-blue-600', accent: 'text-blue-400', activeBg: 'bg-blue-700' },
-            'search': { bar: 'bg-purple-600', accent: 'text-purple-400', activeBg: 'bg-purple-700' },
-            'factures': { bar: 'bg-red-600', accent: 'text-red-400', activeBg: 'bg-red-700' },
-            'parameters': { bar: 'bg-amber-600', accent: 'text-amber-400', activeBg: 'bg-amber-700' },
+            'dashboard': { bar: 'bg-blue-600', accent: 'text-blue-400', activeBg: 'bg-blue-700' },
+            'regularisation': { bar: 'bg-amber-600', accent: 'text-amber-400', activeBg: 'bg-amber-700' },
+            'parametres': { bar: 'bg-purple-600', accent: 'text-purple-400', activeBg: 'bg-purple-700' },
             'users': { bar: 'bg-emerald-600', accent: 'text-emerald-400', activeBg: 'bg-emerald-700' }
           };
 
           const menuColor = menuColorMap[item.id] || { bar: 'bg-slate-600', accent: 'text-slate-400', activeBg: 'bg-slate-700' };
-
-          // Vérifier les permissions pour chaque menu principal
-          const itemPermissionMap: { [key: string]: string } = {
-            'dashboard-factures': 'dashboard',
-            'search': 'recherche',
-            'factures': 'factures',
-            'parameters': 'paramettre',
-            'users': 'utilisateurs'
-          };
-
-          const requiredPermission = itemPermissionMap[item.id];
-          if (requiredPermission && !canView(requiredPermission)) {
-            return null; // Masquer cet élément si pas de permission
-          }
 
           if (item.subItems) {
             return (
@@ -492,7 +457,9 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
                     <Icon size={19} className={`flex-shrink-0 transition-colors duration-300 ease-out ${
                       isItemExpanded ? menuColor.accent : 'group-hover:' + menuColor.accent
                     }`} />
-                    <span className="flex-1 text-left">{item.label}</span>
+                    <span className="flex-1 text-left relative group-hover:after:w-full after:w-0 after:h-0.5 after:bg-current after:absolute after:bottom-0 after:left-0 after:transition-all after:duration-300">
+                      {item.label}
+                    </span>
                     <ChevronDown
                       size={16}
                       className={`transition-transform duration-300 ease-out flex-shrink-0 ${
@@ -505,37 +472,7 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
                     <div className="ml-2 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-300">
                       {item.subItems.map((subItem) => {
                         const SubIcon = subItem.icon;
-                        
-                        // Mapper les sous-menus aux permissions
-                        const subItemPermissionMap: { [key: string]: string } = {
-                          'factures-new': 'factures',
-                          'factures-pending': 'factures_pending_dr',
-                          'factures-pending-dop': 'factures_pending_dop',
-                          'factures-pending-dq': 'factures_pending_dq',
-                          'factures-rejected': 'factures_rejected',
-                          'factures-overdue': 'factures_overdue',
-                          'factures-validated': 'factures_validated',
-                          'factures-payment-order': 'factures_payment_order',
-                          'factures-paid': 'factures_paid',
-                          'factures-partially-paid': 'factures_partially_paid',
-                          'parameters-suppliers': 'fournisseurs',
-                          'parameters-charges': 'charges',
-                          'parameters-centres': 'centres',
-                          'parameters-caisses': 'caisses',
-                          'parameters-comptes': 'comptes',
-                        };
 
-                        const requiredSubPermission = subItemPermissionMap[subItem.id];
-                        
-                        // Pour les onglets de factures, utiliser canViewInvoiceTab au lieu de canView
-                        if (item.id === 'factures' && (subItem.id === 'factures-pending' || subItem.id === 'factures-pending-dop' || subItem.id === 'factures-pending-dq')) {
-                          if (!canViewInvoiceTab(subItem.id)) {
-                            return null; // Masquer cet onglet si pas de permission pour la région
-                          }
-                        } else if (requiredSubPermission && !canView(requiredSubPermission)) {
-                          return null; // Masquer ce sous-élément si pas de permission
-                        }
-                        
                         return (
                           <button
                             key={subItem.id}
@@ -550,7 +487,9 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
                             <SubIcon size={15} className={`flex-shrink-0 transition-colors duration-300 ease-out ${
                               isSubMenuActive(subItem.id) ? menuColor.accent : 'group-hover:' + menuColor.accent
                             }`} />
-                            <span className={`flex-1 text-left`}>{subItem.label}</span>
+                            <span className={`flex-1 text-left relative group-hover:after:w-full after:w-0 after:h-0.5 after:bg-current after:absolute after:bottom-0 after:left-0 after:transition-all after:duration-300`}>
+                              {subItem.label}
+                            </span>
                           </button>
                         );
                       })}
@@ -575,7 +514,9 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
               <Icon size={19} className={`flex-shrink-0 transition-colors duration-300 ease-out ${
                 isSubMenuActive(item.id) ? menuColor.accent : 'group-hover:' + menuColor.accent
               }`} />
-              <span className="">{item.label}</span>
+              <span className="relative group-hover:after:w-full after:w-0 after:h-0.5 after:bg-current after:absolute after:bottom-0 after:left-0 after:transition-all after:duration-300">
+                {item.label}
+              </span>
             </button>
           );
         })}

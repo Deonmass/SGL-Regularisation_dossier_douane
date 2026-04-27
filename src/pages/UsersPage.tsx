@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MoreVertical, Lock, UserX, Edit2, Trash2, RefreshCw, Search, X, Loader, Plus, Shield, Heart } from 'lucide-react';
+import { MoreVertical, Lock, UserX, Edit2, Trash2, RefreshCw, Search, X, Loader, Plus, Shield } from 'lucide-react';
 import bcrypt from 'bcryptjs';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
-import { usePermission } from '../hooks/usePermission';
-import AccessDenied from '../components/AccessDenied';
 
 interface Agent {
   ID: number;
@@ -115,7 +113,6 @@ const PREDEFINED_ROLES: Record<string, MenuPermissions> = {
 };
 
 function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
-  const { canView, canDelete, canEdit, canCreate } = usePermission();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -185,36 +182,23 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   });
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
-  if (!canView('utilisateurs')) {
-    return <AccessDenied message="Vous n'avez pas accès à la gestion des utilisateurs." />;
-  }
-
   const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
-      const { data, error: dbError } = await supabase
+      const { data, error } = await supabase
         .from('AGENTS')
         .select('*')
-        .order('REGION', { ascending: true })
         .order('Nom', { ascending: true });
 
-      if (dbError) {
-        console.error('Error fetching agents:', dbError);
-        Swal.fire({
-          icon: 'error',
-          title: 'Erreur',
-          text: 'Erreur lors du chargement des agents',
-          confirmButtonColor: '#3b82f6',
-        });
-      } else {
-        setAgents(data || []);
-      }
+      if (error) throw error;
+      
+      setAgents(data || []);
     } catch (err) {
-      console.error('Error:', err);
+      console.error('Error loading agents:', err);
       Swal.fire({
         icon: 'error',
         title: 'Erreur',
-        text: 'Erreur lors du chargement',
+        text: 'Erreur lors du chargement des agents',
         confirmButtonColor: '#3b82f6',
       });
     } finally {
@@ -421,17 +405,6 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   };
 
   const handleDeleteAgent = async (agent: Agent) => {
-    // Vérification de permission avant suppression
-    if (!canDelete('utilisateurs')) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Accès refusé',
-        text: 'Vous n\'avez pas la permission de supprimer des agents.',
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
     Swal.fire({
       title: 'Supprimer cet agent?',
       text: 'Cette action est irréversible. L\'agent et toutes ses données seront supprimés.',
@@ -478,17 +451,6 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   const handleSaveEdit = async () => {
     if (!editingAgent) return;
 
-    // Vérification de permission avant modification
-    if (!canEdit('utilisateurs')) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Accès refusé',
-        text: 'Vous n\'avez pas la permission de modifier des agents.',
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
     setActionLoading_( editingAgent.ID, 'edit', true);
     try {
       const { error } = await supabase
@@ -526,17 +488,6 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
       };
 
   const handleAddNewUser = async () => {
-    // Vérification de permission avant création
-    if (!canCreate('utilisateurs')) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Accès refusé',
-        text: 'Vous n\'avez pas la permission de créer des agents.',
-        confirmButtonColor: '#3b82f6',
-      });
-      return;
-    }
-
     if (!newAgent.Nom || !newAgent.email) {
       Swal.fire({
         icon: 'error',
@@ -1091,97 +1042,79 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
             <p className="font-semibold text-gray-900 text-sm">{contextMenu.agent.Nom}</p>
           </div>
 
-          {canEdit('utilisateurs') && (
-            <button
-              onClick={() => {
-                handleShowResetPasswordModal(contextMenu.agent);
-                setContextMenu(null);
-              }}
-              disabled={actionLoading[`${contextMenu.agent.ID}-reset`]}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-              title={!canEdit('utilisateurs') ? 'Vous n\'avez pas la permission' : 'Réinitialiser le mot de passe'}
-            >
-              {actionLoading[`${contextMenu.agent.ID}-reset`] ? (
-                <Loader size={14} className="animate-spin" />
-              ) : (
-                <Lock size={14} />
-              )}
-              <span>Réinitialiser MDP</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              handleShowResetPasswordModal(contextMenu.agent);
+              setContextMenu(null);
+            }}
+            disabled={actionLoading[`${contextMenu.agent.ID}-reset`]}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+            title="Réinitialiser le mot de passe"
+          >
+            {actionLoading[`${contextMenu.agent.ID}-reset`] ? (
+              <Loader size={14} className="animate-spin" />
+            ) : (
+              <Lock size={14} />
+            )}
+            <span>Réinitialiser MDP</span>
+          </button>
 
-          {canEdit('utilisateurs') && (
-            <button
-              onClick={() => handleToggleStatus(contextMenu.agent)}
-              disabled={actionLoading[`${contextMenu.agent.ID}-toggle`]}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-              title={!canEdit('utilisateurs') ? 'Vous n\'avez pas la permission' : 'Changer le statut'}
-            >
-              {actionLoading[`${contextMenu.agent.ID}-toggle`] ? (
-                <Loader size={14} className="animate-spin" />
-              ) : (
-                <UserX size={14} />
-              )}
-              <span>{contextMenu.agent.statut === 'Actif' ? 'Désactiver' : 'Activer'}</span>
-            </button>
-          )}
+          <button
+            onClick={() => handleToggleStatus(contextMenu.agent)}
+            disabled={actionLoading[`${contextMenu.agent.ID}-toggle`]}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+            title="Changer le statut"
+          >
+            {actionLoading[`${contextMenu.agent.ID}-toggle`] ? (
+              <Loader size={14} className="animate-spin" />
+            ) : (
+              <UserX size={14} />
+            )}
+            <span>{contextMenu.agent.statut === 'Actif' ? 'Désactiver' : 'Activer'}</span>
+          </button>
 
-          {canEdit('utilisateurs') && (
-            <button
-              onClick={() => {
-                setEditingAgent(contextMenu.agent);
-                setContextMenu(null);
-              }}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-              title="Modifier les informations"
-            >
-              <Edit2 size={14} />
-              <span>Mettre à jour</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setEditingAgent(contextMenu.agent);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+            title="Modifier les informations"
+          >
+            <Edit2 size={14} />
+            <span>Mettre à jour</span>
+          </button>
 
-          {canEdit('utilisateurs') && (
-            <button
-              onClick={() => {
-                handleShowPermissionsModal(contextMenu.agent);
-                setContextMenu(null);
-              }}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-              title="Gérer les permissions"
-            >
-              <Shield size={14} />
-              <span>Permissions</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              handleShowPermissionsModal(contextMenu.agent);
+              setContextMenu(null);
+            }}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+            title="Gérer les permissions"
+          >
+            <Shield size={14} />
+            <span>Permissions</span>
+          </button>
 
-          {(canEdit('utilisateurs') || canDelete('utilisateurs')) && (
-            <div className="border-t border-gray-200 my-1"></div>
-          )}
+          <div className="border-t border-gray-200 my-1"></div>
 
-          {canDelete('utilisateurs') && (
-            <button
-              onClick={() => {
-                handleDeleteAgent(contextMenu.agent);
-                setContextMenu(null);
-              }}
-              disabled={actionLoading[`${contextMenu.agent.ID}-delete`]}
-              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm rounded-b-lg hover:scale-105"
-              title="Supprimer l'agent"
-            >
-              {actionLoading[`${contextMenu.agent.ID}-delete`] ? (
-                <Loader size={14} className="animate-spin" />
-              ) : (
-                <Trash2 size={14} />
-              )}
-              <span>Supprimer</span>
-            </button>
-          )}
-
-          {!canEdit('utilisateurs') && !canDelete('utilisateurs') && (
-            <div className="px-3 py-2 text-xs text-gray-500 text-center">
-              Vous n'avez pas les permissions
-            </div>
-          )}
+          <button
+            onClick={() => {
+              handleDeleteAgent(contextMenu.agent);
+              setContextMenu(null);
+            }}
+            disabled={actionLoading[`${contextMenu.agent.ID}-delete`]}
+            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm rounded-b-lg hover:scale-105"
+            title="Supprimer l'agent"
+          >
+            {actionLoading[`${contextMenu.agent.ID}-delete`] ? (
+              <Loader size={14} className="animate-spin" />
+            ) : (
+              <Trash2 size={14} />
+            )}
+            <span>Supprimer</span>
+          </button>
         </div>
       )}
 
