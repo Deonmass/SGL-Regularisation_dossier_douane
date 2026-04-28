@@ -1,63 +1,18 @@
 import { useAuth } from '../contexts/AuthContext';
+import { hasMenuPermission, resolvePermissions } from '../utils/permissions';
 
 export function usePermission() {
   const { agent } = useAuth();
 
-  // Fonction pour rechercher récursivement dans l'objet permissions
-  const searchPermissionRecursive = (obj: any, targetKey: string, targetAction: string): boolean => {
-    if (!obj || typeof obj !== 'object') {
-      return false;
-    }
-
-    // Chercher la clé en ignorant la casse
-    for (const key in obj) {
-      if (key.toLowerCase() === targetKey.toLowerCase()) {
-        const value = obj[key];
-        if (typeof value === 'object' && value !== null) {
-          // Chercher l'action dans ce sous-objet
-          for (const actionKey in value) {
-            if (actionKey.toLowerCase() === targetAction.toLowerCase()) {
-              return value[actionKey] === true;
-            }
-          }
-        }
-      }
-
-      // Récursion pour les sous-objets
-      if (typeof obj[key] === 'object' && obj[key] !== null) {
-        const result = searchPermissionRecursive(obj[key], targetKey, targetAction);
-        if (result) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  };
-
   // Parse des permissions
   const getPermissions = () => {
-    if (!agent?.permission) {
-      console.warn('No permission data found for agent:', agent);
-      return null;
-    }
-    try {
-      let perms = agent.permission;
-      if (typeof perms === 'string') {
-        perms = JSON.parse(perms);
-      }
-      return perms;
-    } catch (err) {
-      console.error('Error parsing permissions:', err, 'Raw permission:', agent.permission);
-      return null;
-    }
+    return resolvePermissions(agent?.permission, agent?.role);
   };
 
   // Vérifier une permission spécifique
   const hasPermission = (menu: string, action: string): boolean => {
     const perms = getPermissions();
-    if (!perms) return false;
-    return searchPermissionRecursive(perms, menu, action);
+    return hasMenuPermission(perms, menu, action);
   };
 
   // Vérifier si l'utilisateur peut voir un menu
@@ -124,7 +79,7 @@ export function usePermission() {
 
     // Pour les onglets de validation, vérifier soit la permission "voir" spécifique soit les permissions de validateur
     if (tabId === 'factures-pending') {
-      return hasPermission('factures_pending_dr', 'voir') || isValidatorDR(agent?.REGION || '');
+      return hasPermission('factures_pending_dr', 'voir') || isValidatorDR(agent?.region || '');
     }
     // Si c'est un onglet DOP, vérifier soit la permission "voir" soit dop_tout
     if (tabId === 'factures-pending-dop') {

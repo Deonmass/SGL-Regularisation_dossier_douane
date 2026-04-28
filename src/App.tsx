@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { AuthProvider } from './contexts/AuthContext';
+import { useAuth } from './contexts/AuthContext';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import UsersPage from './pages/UsersPage';
@@ -13,6 +14,9 @@ import RegimeImportationPage from './pages/RegimeImportationPage';
 import ClientPage from './pages/ClientPage';
 import ToastContainer from './components/ToastContainer';
 import { supabase } from './services/supabase';
+import LoginPage from './pages/LoginPage';
+import AccessDenied from './components/AccessDenied';
+import { usePermission } from './hooks/usePermission';
 
 // Menu labels mapping
 const menuLabels: { [key: string]: string } = {
@@ -54,6 +58,8 @@ const menuLabels: { [key: string]: string } = {
 };
 
 function AppContent() {
+  const { agent, loading: authLoading } = useAuth();
+  const { canView } = usePermission();
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [supabaseStatus, setSupabaseStatus] = useState<'loading' | 'connected' | 'error'>('loading');
 
@@ -78,6 +84,41 @@ function AppContent() {
 
   const getMenuTitle = (menu: string): string => {
     return menuLabels[menu] || menu;
+  };
+
+  const canViewCurrentMenu = () => {
+    switch (activeMenu) {
+      case 'dashboard':
+        return canView('dashboard');
+      case 'regularisation':
+      case 'regularisation-nouveau':
+        return canView('regularisation');
+      case 'regularisation-ouest':
+        return canView('regularisation-ouest');
+      case 'regularisation-est':
+        return canView('regularisation-est');
+      case 'regularisation-sud':
+        return canView('regularisation-sud');
+      case 'parametres':
+        return canView('parametres');
+      case 'parametres-regions':
+        return canView('parametres-regions');
+      case 'parametres-point-entree':
+        return canView('parametres-point-entree');
+      case 'parametres-bureau-douane':
+        return canView('parametres-bureau-douane');
+      case 'parametres-mode-transport':
+        return canView('parametres-mode-transport');
+      case 'parametres-regime-importation':
+        return canView('parametres-regime-importation');
+      case 'parametres-client':
+        return canView('parametres-client');
+      case 'users':
+      case 'parameters-agents':
+        return canView('users');
+      default:
+        return true;
+    }
   };
 
   const renderPage = () => {
@@ -158,6 +199,40 @@ function AppContent() {
   const handleMenuChange = (menu: string) => {
     setActiveMenu(menu);
   };
+
+  useEffect(() => {
+    if (!agent) return;
+
+    if (!canViewCurrentMenu()) {
+      if (canView('dashboard')) {
+        setActiveMenu('dashboard');
+      } else if (canView('regularisation')) {
+        setActiveMenu('regularisation-nouveau');
+      } else if (canView('regularisation-ouest')) {
+        setActiveMenu('regularisation-ouest');
+      } else if (canView('regularisation-est')) {
+        setActiveMenu('regularisation-est');
+      } else if (canView('regularisation-sud')) {
+        setActiveMenu('regularisation-sud');
+      } else if (canView('parametres-regions')) {
+        setActiveMenu('parametres-regions');
+      } else if (canView('users')) {
+        setActiveMenu('users');
+      }
+    }
+  }, [activeMenu, agent]);
+
+  if (authLoading) {
+    return <div className="min-h-screen bg-gray-100" />;
+  }
+
+  if (!agent) {
+    return <LoginPage />;
+  }
+
+  if (!canViewCurrentMenu()) {
+    return <AccessDenied />;
+  }
 
   return (
     <div className="flex h-screen bg-gray-100">

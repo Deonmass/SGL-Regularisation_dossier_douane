@@ -41,16 +41,15 @@ export interface User {
 }
 
 export interface Agent {
-  ID: number;
-  Nom: string;
+  id: string;
+  nom: string;
   email: string;
-  Role: string;
-  REGION: string;
-  Derniere_connexion: string | null;
-  statut: 'Actif' | 'Inactif';
-  Mot_de_passe?: string;
-  permission?: Record<string, unknown>;
-  Date_creation?: string;
+  role: string;
+  region: string;
+  password?: string;
+  permission?: string;
+  created_at?: string;
+  created_by?: string;
 }
 
 export interface StatData {

@@ -109,47 +109,63 @@ export const fournisseurService = {
 
 // AGENTS
 export interface Agent {
-  ID?: number;
-  Nom: string;
+  id?: string;
+  nom: string;
   email: string;
-  Role: string;
-  REGION: string;
+  role: string;
+  region: string;
+  password?: string;
+  created_at?: string;
+  created_by?: string;
 }
 
 export const agentService = {
   async getAll() {
     const { data, error } = await supabase
-      .from('AGENTS')
+      .from('agents')
       .select('*')
-      .order('ID', { ascending: true });
+      .order('nom', { ascending: true });
     if (error) throw error;
     return data;
   },
 
   async create(agent: Agent) {
     const { data, error } = await supabase
-      .from('AGENTS')
-      .insert([agent])
+      .from('agents')
+      .insert([{
+        nom: agent.nom,
+        email: agent.email,
+        role: agent.role,
+        region: agent.region,
+        password: agent.password,
+        created_by: agent.created_by
+      }])
       .select();
     if (error) throw error;
     return data[0];
   },
 
-  async update(id: number, agent: Partial<Agent>) {
+  async update(id: string, agent: Partial<Agent>) {
     const { data, error } = await supabase
-      .from('AGENTS')
-      .update(agent)
-      .eq('ID', id)
+      .from('agents')
+      .update({
+        nom: agent.nom,
+        email: agent.email,
+        role: agent.role,
+        region: agent.region,
+        password: agent.password
+      })
+      .eq('id', id)
       .select();
     if (error) throw error;
     return data[0];
   },
 
-  async delete(id: number) {
+  async delete(id: string) {
     const { error } = await supabase
-      .from('AGENTS')
+      .from('agents')
       .delete()
-      .eq('ID', id);
+      .eq('id', id);
     if (error) throw error;
   },
 };

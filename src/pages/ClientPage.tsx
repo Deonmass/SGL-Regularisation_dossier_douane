@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Edit2, Trash2, Plus, Search, RefreshCw, Loader } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
 
 interface Client {
   id: string;
@@ -19,6 +21,7 @@ interface ClientPageProps {
 }
 
 function ClientPage({ menuTitle = 'Clients' }: ClientPageProps) {
+  const { canView, canCreate, canEdit, canDelete } = usePermission();
   const [clients, setClients] = useState<Client[]>([]);
   const [filteredClients, setFilteredClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,6 +32,11 @@ function ClientPage({ menuTitle = 'Clients' }: ClientPageProps) {
     designation: ''
   });
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
+  const menuKey = 'parametres-client';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   const fetchClients = useCallback(async () => {
     try {
@@ -222,13 +230,15 @@ function ClientPage({ menuTitle = 'Clients' }: ClientPageProps) {
             </div>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => setShowNewClientModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              <Plus size={20} />
-              Nouveau client
-            </button>
+            {canCreate(menuKey) && (
+              <button
+                onClick={() => setShowNewClientModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                <Plus size={20} />
+                Nouveau client
+              </button>
+            )}
             <button
               onClick={fetchClients}
               disabled={loading}
@@ -271,25 +281,29 @@ function ClientPage({ menuTitle = 'Clients' }: ClientPageProps) {
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex justify-center gap-2">
-                          <button
-                            onClick={() => setEditingClient(client)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                            title="Modifier"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClient(client)}
-                            disabled={actionLoading[`${client.id}-delete`]}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                            title="Supprimer"
-                          >
-                            {actionLoading[`${client.id}-delete`] ? (
-                              <Loader size={18} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={18} />
-                            )}
-                          </button>
+                          {canEdit(menuKey) && (
+                            <button
+                              onClick={() => setEditingClient(client)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              title="Modifier"
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                          )}
+                          {canDelete(menuKey) && (
+                            <button
+                              onClick={() => handleDeleteClient(client)}
+                              disabled={actionLoading[`${client.id}-delete`]}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                              title="Supprimer"
+                            >
+                              {actionLoading[`${client.id}-delete`] ? (
+                                <Loader size={18} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={18} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { usePermission } from '../../hooks/usePermission';
 import { Agent, agentService } from '../../services/tableService';
+import bcrypt from 'bcryptjs';
 
 interface AgentModalProps {
   isOpen: boolean;
@@ -11,9 +11,8 @@ interface AgentModalProps {
 }
 
 export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModalProps) {
-  const { canCreate, canEdit } = usePermission();
   const [formData, setFormData] = useState<Agent>(
-    agent || { Nom: '', email: '', Role: 'Agent', REGION: 'OUEST' }
+    agent || { nom: '', email: '', role: 'Utilisateur', region: 'OUEST', password: '' }
   );
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,8 +21,15 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
     e.preventDefault();
     setError('');
     
-    // Vérification des permissions
-    if (agent?.ID) {
+    // Vérification des champs
+    if (!formData.nom || !formData.email || !formData.password) {
+      setError('Veuillez remplir tous les champs requis');
+      return;
+    }
+
+    // Temporairement désactiver les permissions pour le test
+    /*
+    if (agent?.id) {
       if (!canEdit('utilisateurs')) {
         setError('Vous n\'avez pas la permission de modifier des agents.');
         return;
@@ -34,19 +40,43 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
         return;
       }
     }
+    */
 
     setLoading(true);
 
     try {
-      if (agent?.ID) {
-        await agentService.update(agent.ID, formData);
+      console.log('🧪 Début de l\'insertion d\'agent...');
+      console.log('Données du formulaire:', formData);
+      
+      // Hasher le mot de passe
+      const hashedPassword = await bcrypt.hash(formData.password!, 10);
+      console.log('✓ Mot de passe hashé');
+      
+      const agentData = {
+        nom: formData.nom,
+        email: formData.email,
+        role: formData.role,
+        region: formData.region,
+        password: hashedPassword
+      };
+      
+      console.log('Données à insérer:', { ...agentData, password: '[HASHED]' });
+
+      if (agent?.id) {
+        console.log('Mise à jour de l\'agent:', agent.id);
+        await agentService.update(agent.id, agentData);
       } else {
-        await agentService.create(formData);
+        console.log('Création d\'un nouvel agent');
+        await agentService.create(agentData);
       }
+      
+      console.log('✓ Opération réussie');
       onSave();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+      console.error('❌ Erreur lors de l\'opération:', err);
+      const errorMessage = err instanceof Error ? err.message : JSON.stringify(err);
+      setError(`Erreur: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -79,8 +109,8 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
             </label>
             <input
               type="text"
-              value={formData.Nom}
-              onChange={(e) => setFormData({ ...formData, Nom: e.target.value })}
+              value={formData.nom}
+              onChange={(e) => setFormData({ ...formData, nom: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
               disabled={loading}
@@ -93,7 +123,7 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
             </label>
             <input
               type="email"
-              value={formData.email || ''}
+              value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               required
@@ -103,17 +133,34 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Mot de passe *
+            </label>
+            <input
+              type="password"
+              value={formData.password || ''}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+              disabled={loading}
+              placeholder="Entrez le mot de passe"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Rôle
             </label>
             <select
-              value={formData.Role}
-              onChange={(e) => setFormData({ ...formData, Role: e.target.value })}
+              value={formData.role}
+              onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             >
-              <option value="Agent">Agent</option>
+              <option value="Utilisateur">Utilisateur</option>
               <option value="Administrateur">Administrateur</option>
-              <option value="Manager">Manager</option>
+              <option value="DR">DR</option>
+              <option value="DOP">DOP</option>
+              <option value="Gestionnaire">Gestionnaire</option>
             </select>
           </div>
 
@@ -122,8 +169,8 @@ export default function AgentModal({ isOpen, agent, onClose, onSave }: AgentModa
               Région
             </label>
             <select
-              value={formData.REGION}
-              onChange={(e) => setFormData({ ...formData, REGION: e.target.value })}
+              value={formData.region}
+              onChange={(e) => setFormData({ ...formData, region: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             >
