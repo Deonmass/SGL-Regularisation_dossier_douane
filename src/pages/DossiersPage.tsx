@@ -4,6 +4,8 @@ import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
 import RegulCapitalPage from './RegulCapitalPage';
 import RegulProvincesPage from './RegulProvincesPage';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
 
 interface Dossier {
   id: string;
@@ -28,6 +30,7 @@ interface DossiersPageProps {
 }
 
 function DossiersPage({ menuTitle = 'Dossiers', regionFilter }: DossiersPageProps) {
+  const { canView, canEdit, canDelete } = usePermission();
   const [dossiers, setDossiers] = useState<Dossier[]>([]);
   const [filteredDossiers, setFilteredDossiers] = useState<Dossier[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -36,6 +39,16 @@ function DossiersPage({ menuTitle = 'Dossiers', regionFilter }: DossiersPageProp
   const [showRegulCapital, setShowRegulCapital] = useState(false);
   const [showRegulProvinces, setShowRegulProvinces] = useState(false);
   const [selectedDossier, setSelectedDossier] = useState<Dossier | null>(null);
+  const menuKey =
+    regionFilter === 'Ouest'
+      ? 'regularisation-ouest'
+      : regionFilter === 'Est'
+        ? 'regularisation-est'
+        : 'regularisation-sud';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   const fetchDossiers = useCallback(async () => {
     try {
@@ -255,7 +268,7 @@ function DossiersPage({ menuTitle = 'Dossiers', regionFilter }: DossiersPageProp
                           >
                             <Eye size={18} />
                           </button>
-                          {regionFilter === 'Ouest' && (
+                          {regionFilter === 'Ouest' && canEdit(menuKey) && (
                             <button
                               onClick={() => handleOpenRegulCapital(dossier)}
                               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
@@ -264,7 +277,7 @@ function DossiersPage({ menuTitle = 'Dossiers', regionFilter }: DossiersPageProp
                               <FileText size={18} />
                             </button>
                           )}
-                          {(regionFilter === 'Est' || regionFilter === 'Sud') && (
+                          {(regionFilter === 'Est' || regionFilter === 'Sud') && canEdit(menuKey) && (
                             <button
                               onClick={() => handleOpenRegulProvinces(dossier)}
                               className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
@@ -273,13 +286,15 @@ function DossiersPage({ menuTitle = 'Dossiers', regionFilter }: DossiersPageProp
                               <FileText size={18} />
                             </button>
                           )}
-                          <button
-                            onClick={() => handleDeleteDossier(dossier)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                            title="Supprimer"
-                          >
-                            <Trash2 size={18} />
-                          </button>
+                          {canDelete(menuKey) && (
+                            <button
+                              onClick={() => handleDeleteDossier(dossier)}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
+                              title="Supprimer"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

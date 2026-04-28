@@ -3,30 +3,43 @@ import { MoreVertical, Lock, UserX, Edit2, Trash2, RefreshCw, Search, X, Loader,
 import bcrypt from 'bcryptjs';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
+import { MenuPermissions, PREDEFINED_ROLES, parsePermissionValue } from '../utils/permissions';
 
 interface Agent {
-  ID: number;
-  Nom: string;
+  id: string;
+  nom: string;
   email: string;
-  Role: string;
-  REGION: string;
-  Derniere_connexion: string | null;
+  role: string;
+  region: string;
   statut: string;
-  Mot_de_passe?: string;
-  permissions?: string;
+  password?: string;
+  permission?: string;
+  date_creation?: string;
+  derniere_connexion?: string | null;
+  created_at?: string;
+  created_by?: string;
 }
 
-interface MenuPermissions {
-  [menuKey: string]: {
-    [key: string]: boolean | undefined;
-  };
+interface PermissionSubMenuConfig {
+  key: string;
+  label: string;
+  actions: string[];
+}
+
+interface PermissionMenuConfig {
+  key: string;
+  label: string;
+  actions: string[];
+  subMenus?: PermissionSubMenuConfig[];
 }
 
 interface NewAgent {
-  Nom: string;
+  nom: string;
   email: string;
-  Role: string;
-  REGION: string;
+  role: string;
+  region: string;
 }
 
 interface UsersPageProps {
@@ -39,80 +52,8 @@ interface ContextMenuPosition {
   y: number;
 }
 
-// Rôles prédéfinis avec leurs permissions
-const PREDEFINED_ROLES: Record<string, MenuPermissions> = {
-  'Administrateur': {
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: { voir: true, creer: true, modifier: true, supprimer: true, valider: true, rejeter: true, establir_op: true, marquer_payee: true },
-    factures_pending_dr: { voir: true, valider: true, rejeter: true },
-    factures_pending_dop: { voir: true, valider: true, rejeter: true },
-    factures_rejected: { voir: true, modifier: true },
-    factures_overdue: { voir: true },
-    factures_validated: { voir: true, establir_op: true },
-    factures_payment_order: { voir: true, establir_op: true, marquer_payee: true },
-    factures_paid: { voir: true },
-    factures_partially_paid: { voir: true },
-    paramettre: { voir: true },
-    fournisseurs: { voir: true, creer: true, modifier: true, supprimer: true },
-    charges: { voir: true, creer: true, modifier: true, supprimer: true },
-    centres: { voir: true, creer: true, modifier: true, supprimer: true },
-    caisses: { voir: true, creer: true, modifier: true, supprimer: true },
-    comptes: { voir: true, creer: true, modifier: true, supprimer: true },
-    utilisateurs: { voir: true, creer: true, modifier: true, supprimer: true, reinitialiser_mdp: true, gerer_permissions: true },
-    dr_ouest: { valider: true },
-    dr_est: { valider: true },
-    dr_sud: { valider: true },
-    dop_tout: { valider: true },
-    dg_tout: { valider: true }
-  },
-  'DR': {
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: { voir: true, creer: false, modifier: false, supprimer: false, valider: true, rejeter: true, establir_op: false, marquer_payee: false },
-    factures_pending_dr: { voir: true, valider: true, rejeter: true },
-    factures_rejected: { voir: true, modifier: false },
-    factures_overdue: { voir: true },
-    paramettre: { voir: false },
-    fournisseurs: { voir: true, creer: false, modifier: false, supprimer: false },
-    charges: { voir: false },
-    centres: { voir: false },
-    caisses: { voir: false },
-    comptes: { voir: false },
-    utilisateurs: { voir: false },
-    dr_ouest: { valider: true },
-    dr_est: { valider: false },
-    dr_sud: { valider: false },
-  },
-  'DOP': {
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: { voir: true, creer: false, modifier: false, supprimer: false, valider: true, rejeter: true, establir_op: false, marquer_payee: false },
-    factures_pending_dop: { voir: true, valider: true, rejeter: true },
-    factures_validated: { voir: true, establir_op: false },
-    paramettre: { voir: false },
-    dop_tout: { valider: true },
-  },
-  'Utilisateur': {
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: { voir: true, creer: false, modifier: false, supprimer: false, valider: false, rejeter: false, establir_op: false, marquer_payee: false },
-    paramettre: { voir: false },
-  },
-  'Gestionnaire': {
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: { voir: true, creer: true, modifier: true, supprimer: false, valider: false, rejeter: false, establir_op: false, marquer_payee: false },
-    paramettre: { voir: true },
-    fournisseurs: { voir: true, creer: true, modifier: true, supprimer: false },
-    charges: { voir: true, creer: true, modifier: true, supprimer: false },
-    centres: { voir: true, creer: true, modifier: true, supprimer: false },
-    caisses: { voir: true, creer: true, modifier: true, supprimer: false },
-    comptes: { voir: true, creer: true, modifier: true, supprimer: false },
-  },
-};
-
 function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
+  const { canView, canCreate, canEdit, canDelete, hasPermission } = usePermission();
   const [agents, setAgents] = useState<Agent[]>([]);
   const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -125,70 +66,25 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   } | null>(null);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [resetPassword, setResetPassword] = useState('SGL');
-  const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
+  const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});  
   const [showNewUserModal, setShowNewUserModal] = useState(false);
-  const [newAgent, setNewAgent] = useState<NewAgent>({
-    Nom: '',
-    email: '',
-    Role: 'Utilisateur',
-    REGION: 'OUEST'
-  });
+  const [newAgent, setNewAgent] = useState<NewAgent>({ nom: '', email: '', role: 'Utilisateur', region: 'OUEST' });
   const [permissionsAgent, setPermissionsAgent] = useState<Agent | null>(null);
-  const [activePermissionTab, setActivePermissionTab] = useState('dashboard-recherche');
+  const [activePermissionTab, setActivePermissionTab] = useState('general');
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [showSaveRoleModal, setShowSaveRoleModal] = useState(false);
   const [roleNameToSave, setRoleNameToSave] = useState('');
   const [selectedRoleTemplate, setSelectedRoleTemplate] = useState<string>('');
-  const [permissions, setPermissions] = useState<MenuPermissions>({
-    dashboard: { voir: true },
-    recherche: { voir: true },
-    factures: {
-      voir: true,
-      creer: false,
-      modifier: true,
-      supprimer: false,
-      valider: true,
-      rejeter: true,
-      establir_op: true,
-      marquer_payee: true
-    },
-    factures_pending_dr: { voir: true, valider: true, rejeter: true },
-    factures_pending_dop: { voir: true, valider: true, rejeter: true },
-    factures_rejected: { voir: true, modifier: true },
-    factures_overdue: { voir: true },
-    factures_validated: { voir: true, establir_op: true },
-    factures_payment_order: { voir: true, establir_op: true, marquer_payee: true },
-    factures_paid: { voir: true },
-    factures_partially_paid: { voir: true },
-    paramettre: { voir: true },
-    fournisseurs: { voir: true, creer: false, modifier: false, supprimer: false },
-    charges: { voir: true, creer: false, modifier: false, supprimer: false },
-    centres: { voir: true, creer: false, modifier: false, supprimer: false },
-    caisses: { voir: true, creer: false, modifier: false, supprimer: false },
-    comptes: { voir: true, creer: false, modifier: false, supprimer: false },
-    utilisateurs: {
-      voir: true,
-      creer: false,
-      modifier: false,
-      supprimer: false,
-      reinitialiser_mdp: false,
-      gerer_permissions: false
-    },
-    dr_ouest: { valider: false },
-    dr_est: { valider: false },
-    dr_sud: { valider: false },
-    dop_tout: { valider: false },
-    dg_tout: { valider: false }
-  });
+  const [permissions, setPermissions] = useState<MenuPermissions>({ ...(PREDEFINED_ROLES['Utilisateur'] || {}) });
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
       setLoading(true);
       const { data, error } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .select('*')
-        .order('Nom', { ascending: true });
+        .order('nom', { ascending: true });
 
       if (error) throw error;
       
@@ -210,22 +106,22 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     let filtered = agents;
 
     if (selectedRegion !== 'all') {
-      filtered = filtered.filter(a => a.REGION === selectedRegion);
+      filtered = filtered.filter(a => a.region === selectedRegion);
     }
 
     if (selectedRoleFilter !== 'all') {
-      filtered = filtered.filter(a => a.Role === selectedRoleFilter);
+      filtered = filtered.filter(a => a.role === selectedRoleFilter);
     }
 
     if (searchTerm.trim()) {
       const lower = searchTerm.toLowerCase();
       filtered = filtered.filter(a => 
-        a.Nom.toLowerCase().includes(lower) || 
+        a.nom.toLowerCase().includes(lower) || 
         a.email.toLowerCase().includes(lower)
       );
     }
 
-    filtered.sort((a, b) => a.Nom.localeCompare(b.Nom));
+    filtered.sort((a, b) => a.nom.localeCompare(b.nom));
     setFilteredAgents(filtered);
   }, [agents, selectedRegion, selectedRoleFilter, searchTerm]);
 
@@ -296,7 +192,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     });
   };
 
-  const setActionLoading_ = (agentId: number, action: string, value: boolean) => {
+  const setActionLoading_ = (agentId: string, action: string, value: boolean) => {
     setActionLoading(prev => ({ ...prev, [`${agentId}-${action}`]: value }));
   };
 
@@ -336,7 +232,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   };
 
   const handleResetPasswordConfirm = async (agent: Agent) => {
-    setActionLoading_( agent.ID, 'reset', true);
+    setActionLoading_( agent.id, 'reset', true);
     try {
       // Hash the password using bcryptjs
       const saltRounds = 10;
@@ -344,13 +240,13 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
       
       // Update the password in the database
       const { error } = await supabase
-        .from('AGENTS')
-        .update({ 'mot de passe': hashedPassword })
-        .eq('ID', agent.ID);
+        .from('agents')
+        .update({ password: hashedPassword })
+        .eq('id', agent.id);
 
       if (error) throw error;
       
-      setAgents(agents.map(a => a.ID === agent.ID ? { ...a, Mot_de_passe: hashedPassword } : a));
+      setAgents(agents.map(a => a.id === agent.id ? { ...a, password: hashedPassword } : a));
       Swal.fire({
         icon: 'success',
         title: 'Succès',
@@ -367,23 +263,23 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
     } finally {
-      setActionLoading_( agent.ID, 'reset', false);
+      setActionLoading_( agent.id, 'reset', false);
       setContextMenu(null);
     }
   };
 
   const handleToggleStatus = async (agent: Agent) => {
-    setActionLoading_( agent.ID, 'toggle', true);
+    setActionLoading_( agent.id, 'toggle', true);
     try {
       const newStatus = agent.statut === 'Actif' ? 'Inactif' : 'Actif';
       const { error } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .update({ statut: newStatus })
-        .eq('ID', agent.ID);
+        .eq('id', agent.id);
 
       if (error) throw error;
       
-      setAgents(agents.map(a => a.ID === agent.ID ? { ...a, statut: newStatus } : a));
+      setAgents(agents.map(a => a.id === agent.id ? { ...a, statut: newStatus } : a));
       Swal.fire({
         icon: 'success',
         title: 'Succès',
@@ -399,7 +295,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
     } finally {
-      setActionLoading_( agent.ID, 'toggle', false);
+      setActionLoading_( agent.id, 'toggle', false);
       setContextMenu(null);
     }
   };
@@ -416,16 +312,16 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
       cancelButtonColor: '#d1d5db',
     }).then(async (result) => {
       if (result.isConfirmed) {
-        setActionLoading_( agent.ID, 'delete', true);
+        setActionLoading_( agent.id, 'delete', true);
         try {
           const { error } = await supabase
-            .from('AGENTS')
+            .from('agents')
             .delete()
-            .eq('ID', agent.ID);
+            .eq('id', agent.id);
 
           if (error) throw error;
           
-          setAgents(agents.filter(a => a.ID !== agent.ID));
+          setAgents(agents.filter(a => a.id !== agent.id));
           Swal.fire({
             icon: 'success',
             title: 'Succès',
@@ -441,7 +337,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
             confirmButtonColor: '#3b82f6',
           });
         } finally {
-          setActionLoading_( agent.ID, 'delete', false);
+          setActionLoading_( agent.id, 'delete', false);
           setContextMenu(null);
         }
       }
@@ -451,21 +347,21 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   const handleSaveEdit = async () => {
     if (!editingAgent) return;
 
-    setActionLoading_( editingAgent.ID, 'edit', true);
+    setActionLoading_( editingAgent.id, 'edit', true);
     try {
       const { error } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .update({
-          Nom: editingAgent.Nom,
+          nom: editingAgent.nom,
           email: editingAgent.email,
-          Role: editingAgent.Role,
-          REGION: editingAgent.REGION,
+          role: editingAgent.role,
+          region: editingAgent.region,
         })
-        .eq('ID', editingAgent.ID);
+        .eq('id', editingAgent.id);
 
       if (error) throw error;
       
-      setAgents(agents.map(a => a.ID === editingAgent.ID ? editingAgent : a));
+      setAgents(agents.map(a => a.id === editingAgent.id ? editingAgent : a));
       setEditingAgent(null);
       Swal.fire({
         icon: 'success',
@@ -482,13 +378,13 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
         } finally {
-          setActionLoading_( editingAgent.ID, 'edit', false);
+          setActionLoading_( editingAgent.id, 'edit', false);
           setContextMenu(null);
         }
       };
 
   const handleAddNewUser = async () => {
-    if (!newAgent.Nom || !newAgent.email) {
+    if (!newAgent.nom || !newAgent.email) {
       Swal.fire({
         icon: 'error',
         title: 'Erreur',
@@ -498,19 +394,19 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
       return;
     }
 
-    setActionLoading_( 0, 'add', true);
+    setActionLoading_( 'new', 'add', true);
     try {
       // Hash default password
       const hashedPassword = await bcrypt.hash('SGL', 10);
       
       const { data, error: insertError } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .insert([{
-          Nom: newAgent.Nom,
+          nom: newAgent.nom,
           email: newAgent.email,
-          Role: newAgent.Role,
-          REGION: newAgent.REGION,
-          'mot de passe': hashedPassword,
+          role: newAgent.role,
+          region: newAgent.region,
+          password: hashedPassword,
           statut: 'Actif'
         }])
         .select();
@@ -521,11 +417,11 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         const newAgent_ = data[0];
         setAgents([...agents, newAgent_]);
         setShowNewUserModal(false);
-        setNewAgent({ Nom: '', email: '', Role: 'Utilisateur', REGION: 'OUEST' });
+        setNewAgent({ nom: '', email: '', role: 'Utilisateur', region: 'OUEST' });
         
         // Afficher immédiatement le modal de permissions
         setPermissionsAgent(newAgent_);
-        setActivePermissionTab('dashboard-recherche');
+        setActivePermissionTab('general');
       }
     } catch (err) {
       console.error('Error adding agent:', err);
@@ -536,7 +432,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
     } finally {
-      setActionLoading_( 0, 'add', false);
+      setActionLoading_( 'new', 'add', false);
     }
   };
 
@@ -544,48 +440,48 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     try {
       // Toujours récupérer les permissions fraîches depuis la base de données
       const { data, error } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .select('permission')
-        .eq('ID', agent.ID)
+        .eq('id', agent.id)
         .single();
       
       if (error) {
         console.error('Erreur chargement permissions:', error);
         // En cas d'erreur, utiliser les permissions de l'agent si disponibles
-        const perms = agent.permissions ? JSON.parse(agent.permissions) : permissions;
+        const perms = parsePermissionValue(agent.permission) || PREDEFINED_ROLES[agent.role] || PREDEFINED_ROLES['Utilisateur'] || {};
         setPermissions(perms);
       } else if (data.permission) {
         // Utiliser les permissions depuis la base de données
-        const perms = JSON.parse(data.permission);
+        const perms = parsePermissionValue(data.permission) || PREDEFINED_ROLES[agent.role] || PREDEFINED_ROLES['Utilisateur'] || {};
         setPermissions(perms);
       } else {
         // Utiliser les permissions par défaut si aucune permission en base
-        setPermissions(permissions);
+        setPermissions(PREDEFINED_ROLES[agent.role] || PREDEFINED_ROLES['Utilisateur'] || {});
       }
       
       setPermissionsAgent(agent);
-      setActivePermissionTab('dashboard-recherche');
+      setActivePermissionTab('general');
     } catch (err) {
       console.error('Erreur parsing permissions:', err);
-      setPermissions(permissions);
+      setPermissions(PREDEFINED_ROLES[agent.role] || PREDEFINED_ROLES['Utilisateur'] || {});
       setPermissionsAgent(agent);
-      setActivePermissionTab('dashboard-recherche');
+      setActivePermissionTab('general');
     }
   };
 
   const handleSavePermissions = async () => {
     if (!permissionsAgent) return;
 
-    setActionLoading_( permissionsAgent.ID, 'permissions', true);
+    setActionLoading_( permissionsAgent.id, 'permissions', true);
     try {
       const { error: updateError } = await supabase
-        .from('AGENTS')
+        .from('agents')
         .update({ permission: JSON.stringify(permissions) })
-        .eq('ID', permissionsAgent.ID);
+        .eq('id', permissionsAgent.id);
 
       if (updateError) throw updateError;
       
-      setAgents(agents.map(a => a.ID === permissionsAgent.ID ? { ...a, permissions: JSON.stringify(permissions) } : a));
+      setAgents(agents.map(a => a.id === permissionsAgent.id ? { ...a, permission: JSON.stringify(permissions) } : a));
       setPermissionsAgent(null);
       Swal.fire({
         icon: 'success',
@@ -602,7 +498,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
     } finally {
-      setActionLoading_( permissionsAgent.ID, 'permissions', false);
+      setActionLoading_( permissionsAgent.id, 'permissions', false);
     }
   };
 
@@ -618,7 +514,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     }
 
     try {
-      setActionLoading_( 0, 'save-role', true);
+      setActionLoading_( 'role', 'save-role', true);
       // Stocker dans localStorage pour la démonstration
       // En production, cela serait stocké en base de données
       const roles = JSON.parse(localStorage.getItem('sgl_custom_roles') || '{}');
@@ -643,7 +539,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
         confirmButtonColor: '#3b82f6',
       });
     } finally {
-      setActionLoading_( 0, 'save-role', false);
+      setActionLoading_( 'role', 'save-role', false);
     }
   };
 
@@ -663,92 +559,9 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
 
   const handleToggleAdminMode = () => {
     if (isAdminMode) {
-      // Désactiver le mode admin - réinitialiser aux permissions par défaut
-      setPermissions({
-        dashboard: { voir: true },
-        recherche: { voir: true },
-        factures: {
-          voir: true,
-          creer: false,
-          modifier: true,
-          supprimer: false,
-          valider: true,
-          rejeter: true,
-          establir_op: true,
-          marquer_payee: true
-        },
-        factures_pending_dr: { voir: true, valider: true, rejeter: true },
-        factures_pending_dop: { voir: true, valider: true, rejeter: true },
-        factures_rejected: { voir: true, modifier: true },
-        factures_overdue: { voir: true },
-        factures_validated: { voir: true, establir_op: true },
-        factures_payment_order: { voir: true, establir_op: true, marquer_payee: true },
-        factures_paid: { voir: true },
-        factures_partially_paid: { voir: true },
-        paramettre: { voir: true },
-        fournisseurs: { voir: true, creer: false, modifier: false, supprimer: false },
-        charges: { voir: true, creer: false, modifier: false, supprimer: false },
-        centres: { voir: true, creer: false, modifier: false, supprimer: false },
-        caisses: { voir: true, creer: false, modifier: false, supprimer: false },
-        comptes: { voir: true, creer: false, modifier: false, supprimer: false },
-        utilisateurs: {
-          voir: true,
-          creer: false,
-          modifier: false,
-          supprimer: false,
-          reinitialiser_mdp: false,
-          gerer_permissions: false
-        },
-        dr_ouest: { valider: false },
-        dr_est: { valider: false },
-        dr_sud: { valider: false },
-        dop_tout: { valider: false },
-        dg_tout: { valider: false }
-      });
+      setPermissions(PREDEFINED_ROLES[permissionsAgent?.role || ''] || PREDEFINED_ROLES['Utilisateur'] || {});
     } else {
-      // Activer le mode admin - tout cocher
-      const adminPermissions: MenuPermissions = {
-        dashboard: { voir: true },
-        recherche: { voir: true },
-        factures: {
-          voir: true,
-          creer: true,
-          modifier: true,
-          supprimer: true,
-          valider: true,
-          rejeter: true,
-          establir_op: true,
-          marquer_payee: true
-        },
-        factures_pending_dr: { voir: true, valider: true, rejeter: true },
-        factures_pending_dop: { voir: true, valider: true, rejeter: true },
-        factures_rejected: { voir: true, modifier: true },
-        factures_overdue: { voir: true },
-        factures_validated: { voir: true, establir_op: true },
-        factures_payment_order: { voir: true, establir_op: true, marquer_payee: true },
-        factures_paid: { voir: true },
-        factures_partially_paid: { voir: true },
-        paramettre: { voir: true },
-        fournisseurs: { voir: true, creer: true, modifier: true, supprimer: true },
-        charges: { voir: true, creer: true, modifier: true, supprimer: true },
-        centres: { voir: true, creer: true, modifier: true, supprimer: true },
-        caisses: { voir: true, creer: true, modifier: true, supprimer: true },
-        comptes: { voir: true, creer: true, modifier: true, supprimer: true },
-        utilisateurs: {
-          voir: true,
-          creer: true,
-          modifier: true,
-          supprimer: true,
-          reinitialiser_mdp: true,
-          gerer_permissions: true
-        },
-        dr_ouest: { valider: true },
-        dr_est: { valider: true },
-        dr_sud: { valider: true },
-        dop_tout: { valider: true },
-        dg_tout: { valider: true }
-      };
-      setPermissions(adminPermissions);
+      setPermissions(PREDEFINED_ROLES['Administrateur'] || {});
     }
     setIsAdminMode(!isAdminMode);
   };
@@ -762,48 +575,39 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     return `${day}/${month}/${year}`;
   };
 
-  // Structure intelligente des menus avec sous-menus et actions
-  const menuStructure = [
+  // Structure des permissions alignée sur les pages et onglets actuels de l'application
+  const menuStructure: PermissionMenuConfig[] = [
     {
       key: 'dashboard',
-      label: 'DASHBOARD',
+      label: 'Dashboard',
       actions: ['voir']
     },
     {
-      key: 'recherche',
-      label: 'RECHERCHE',
-      actions: ['voir']
-    },
-    {
-      key: 'factures',
-      label: 'FACTURES',
-      actions: ['voir', 'creer', 'modifier', 'supprimer', 'valider', 'rejeter', 'establir_op', 'marquer_payee'],
+      key: 'regularisation',
+      label: 'Régularisation',
+      actions: ['voir', 'creer', 'modifier', 'supprimer'],
       subMenus: [
-        { key: 'factures_pending_dr', label: 'En attente validation DR', actions: ['voir', 'valider', 'rejeter'] },
-        { key: 'factures_pending_dop', label: 'En attente validation DOP', actions: ['voir', 'valider', 'rejeter'] },
-        { key: 'factures_rejected', label: 'Rejetée', actions: ['voir', 'modifier'] },
-        { key: 'factures_overdue', label: 'Facture Échues', actions: ['voir'] },
-        { key: 'factures_validated', label: 'Validée (bon à payer)', actions: ['voir', 'establir_op'] },
-        { key: 'factures_payment_order', label: 'Ordre de paiement', actions: ['voir', 'establir_op', 'marquer_payee'] },
-        { key: 'factures_paid', label: 'Payé', actions: ['voir'] },
-        { key: 'factures_partially_paid', label: 'Partiellement payé', actions: ['voir'] }
+        { key: 'regularisation_ouest', label: 'Dossiers OUEST', actions: ['voir', 'modifier', 'supprimer'] },
+        { key: 'regularisation_est', label: 'Dossiers EST', actions: ['voir', 'modifier', 'supprimer'] },
+        { key: 'regularisation_sud', label: 'Dossiers SUD', actions: ['voir', 'modifier', 'supprimer'] }
       ]
     },
     {
-      key: 'paramettre',
-      label: 'PARAMETTRE',
+      key: 'parametres',
+      label: 'Paramètres',
       actions: ['voir'],
       subMenus: [
-        { key: 'fournisseurs', label: 'Fournisseurs', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
-        { key: 'charges', label: 'Types de charges', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
-        { key: 'centres', label: 'Centres de coût', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
-        { key: 'caisses', label: 'Caisses', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
-        { key: 'comptes', label: 'Comptes', actions: ['voir', 'creer', 'modifier', 'supprimer'] }
+        { key: 'regions', label: 'Régions', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
+        { key: 'point_entree', label: "Point d'entrée", actions: ['voir', 'creer', 'modifier', 'supprimer'] },
+        { key: 'bureau_douane', label: 'Bureau douane', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
+        { key: 'mode_transport', label: 'Mode de transport', actions: ['voir', 'creer', 'modifier', 'supprimer'] },
+        { key: 'regime_importation', label: "Régime d'importation", actions: ['voir', 'creer', 'modifier', 'supprimer'] },
+        { key: 'client', label: 'Client', actions: ['voir', 'creer', 'modifier', 'supprimer'] }
       ]
     },
     {
       key: 'utilisateurs',
-      label: 'UTILISATEURS',
+      label: 'Utilisateurs',
       actions: ['voir', 'creer', 'modifier', 'supprimer', 'reinitialiser_mdp', 'gerer_permissions']
     }
   ];
@@ -813,10 +617,6 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
     creer: 'Créer',
     modifier: 'Modifier',
     supprimer: 'Supprimer',
-    valider: 'Valider',
-    rejeter: 'Rejeter',
-    establir_op: 'Établir OP',
-    marquer_payee: 'Marquer payée',
     reinitialiser_mdp: 'Réinitialiser MDP',
     gerer_permissions: 'Gérer permissions'
   };
@@ -824,28 +624,33 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
   // Structure des onglets pour le modal de permissions
   const permissionsTabs = [
     {
-      id: 'dashboard-recherche',
-      label: 'DashBoard et Recherche',
-      menus: ['dashboard', 'recherche']
+      id: 'general',
+      label: 'Général',
+      menus: ['dashboard']
     },
     {
-      id: 'factures',
-      label: 'Facture',
-      menus: ['factures']
+      id: 'regularisation',
+      label: 'Régularisation',
+      menus: ['regularisation']
     },
     {
-      id: 'paramettre',
-      label: 'Paramettre',
-      menus: ['paramettre']
+      id: 'parametres',
+      label: 'Paramètres',
+      menus: ['parametres']
     },
     {
       id: 'utilisateurs',
-      label: 'Utilisateur',
+      label: 'Utilisateurs',
       menus: ['utilisateurs']
     }
   ];
 
   const regions = ['all', 'OUEST', 'EST', 'SUD'];
+  const menuKey = 'users';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   return (
     <div className="bg-white min-h-screen">
@@ -878,7 +683,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                 : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            {region} ({agents.filter(a => a.REGION === region).length})
+            {region} ({agents.filter(a => a.region === region).length})
           </button>
           ))}
         </div>
@@ -904,9 +709,9 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
           >
             <option value="all">Tous les rôles</option>
-            {[...new Set(agents.map(a => a.Role))].sort().map(role => (
+            {[...new Set(agents.map(a => a.role))].sort().map(role => (
               <option key={role} value={role}>
-                {role} ({agents.filter(a => a.Role === role).length})
+                {role} ({agents.filter(a => a.role === role).length})
               </option>
             ))}
           </select>
@@ -921,14 +726,16 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             Actualiser
           </button>
-          <button 
-            onClick={() => setShowNewUserModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-lg transition text-sm font-medium"
-            title="Ajouter un agent"
-          >
-            <Plus size={16} />
-            Nouveau
-          </button>
+          {canCreate(menuKey) && (
+            <button 
+              onClick={() => setShowNewUserModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-lg transition text-sm font-medium"
+              title="Ajouter un agent"
+            >
+              <Plus size={16} />
+              Nouveau
+            </button>
+          )}
         </div>
       </div>
 
@@ -947,11 +754,11 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
       ) : (
         <div className="pr-4 pl-4 pt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {filteredAgents.map((agent) => {
-            const cardColors = getCardColors(agent.Role);
-            const initials = getInitials(agent.Nom);
+            const cardColors = getCardColors(agent.role);
+            const initials = getInitials(agent.nom);
             return (
               <div
-                key={agent.ID}
+                key={agent.id}
                 className="bg-white rounded-xl shadow-md hover:shadow-xl hover:scale-105 transition-all duration-300 overflow-hidden flex flex-col text-center h-fit cursor-pointer hover:bg-gradient-to-br hover:from-blue-500 hover:via-purple-500 hover:to-pink-500 hover:text-white group"
               >
                 {/* Avatar Circulaire avec image de fond */}
@@ -971,7 +778,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                   >
                     <img 
                       src="/images/user.jpeg" 
-                      alt={`${agent.Nom} avatar`}
+                      alt={`${agent.nom} avatar`}
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         // Fallback: afficher les initiales si l'image ne charge pas
@@ -987,17 +794,22 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                   </div>
                   
                   {/* Menu 3 points en haut à droite */}
-                  <button
-                    onClick={(e) => handleContextMenu(agent, e)}
-                    className="absolute top-2 right-2 p-2 hover:bg-gray-100 rounded-full transition z-10"
-                  >
-                    <MoreVertical size={18} className="text-gray-600 hover:text-gray-900 transition" />
-                  </button>
+                  {(hasPermission(menuKey, 'reinitialiser_mdp') ||
+                    canEdit(menuKey) ||
+                    hasPermission(menuKey, 'gerer_permissions') ||
+                    canDelete(menuKey)) && (
+                    <button
+                      onClick={(e) => handleContextMenu(agent, e)}
+                      className="absolute top-2 right-2 p-2 hover:bg-gray-100 rounded-full transition z-10"
+                    >
+                      <MoreVertical size={18} className="text-gray-600 hover:text-gray-900 transition" />
+                    </button>
+                  )}
                 </div>
 
                 {/* Contenu Principal */}
                 <div className="flex-1 px-4 py-4">
-                  <h3 className="font-bold text-lg text-gray-900 mb-1 group-hover:text-white transition-colors">{agent.Nom}</h3>
+                  <h3 className="font-bold text-lg text-gray-900 mb-1 group-hover:text-white transition-colors">{agent.nom}</h3>
                   <p className="text-xs text-gray-500 mb-4 truncate group-hover:text-white/90 transition-colors">{agent.email}</p>
 
                   {/* Rôle, Région et Statut sur la même ligne */}
@@ -1006,15 +818,15 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                       className="inline-flex px-2 py-1 rounded-md text-xs font-semibold text-white group-hover:bg-white/20 transition-colors"
                       style={{ backgroundColor: cardColors.borderColor }}
                     >
-                      {agent.Role}
+                      {agent.role}
                     </span>
                     <span className={`inline-flex px-2 py-1 rounded-md text-xs font-semibold text-white group-hover:bg-white/20 transition-colors ${
-                      agent.REGION === 'OUEST' ? 'bg-blue-600' :
-                      agent.REGION === 'EST' ? 'bg-green-600' :
-                      agent.REGION === 'SUD' ? 'bg-orange-600' :
+                      agent.region === 'OUEST' ? 'bg-blue-600' :
+                      agent.region === 'EST' ? 'bg-green-600' :
+                      agent.region === 'SUD' ? 'bg-orange-600' :
                       'bg-purple-600'
                     }`}>
-                      {agent.REGION}
+                      {agent.region}
                     </span>
                     <div className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold bg-gray-600 text-white group-hover:bg-white/20 transition-colors">
                       <span className={`w-2 h-2 rounded-full ${agent.statut === 'Actif' ? 'bg-green-400' : 'bg-red-400'}`}></span>
@@ -1039,82 +851,92 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
           }}
         >
           <div className="border-b border-gray-200 px-3 py-2 bg-gray-50">
-            <p className="font-semibold text-gray-900 text-sm">{contextMenu.agent.Nom}</p>
+            <p className="font-semibold text-gray-900 text-sm">{contextMenu.agent.nom}</p>
           </div>
 
-          <button
-            onClick={() => {
-              handleShowResetPasswordModal(contextMenu.agent);
-              setContextMenu(null);
-            }}
-            disabled={actionLoading[`${contextMenu.agent.ID}-reset`]}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-            title="Réinitialiser le mot de passe"
-          >
-            {actionLoading[`${contextMenu.agent.ID}-reset`] ? (
-              <Loader size={14} className="animate-spin" />
-            ) : (
-              <Lock size={14} />
-            )}
-            <span>Réinitialiser MDP</span>
-          </button>
+          {hasPermission(menuKey, 'reinitialiser_mdp') && (
+            <button
+              onClick={() => {
+                handleShowResetPasswordModal(contextMenu.agent);
+                setContextMenu(null);
+              }}
+              disabled={actionLoading[`${contextMenu.agent.id}-reset`]}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+              title="Réinitialiser le mot de passe"
+            >
+              {actionLoading[`${contextMenu.agent.id}-reset`] ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <Lock size={14} />
+              )}
+              <span>Réinitialiser MDP</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleToggleStatus(contextMenu.agent)}
-            disabled={actionLoading[`${contextMenu.agent.ID}-toggle`]}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-            title="Changer le statut"
-          >
-            {actionLoading[`${contextMenu.agent.ID}-toggle`] ? (
-              <Loader size={14} className="animate-spin" />
-            ) : (
-              <UserX size={14} />
-            )}
-            <span>{contextMenu.agent.statut === 'Actif' ? 'Désactiver' : 'Activer'}</span>
-          </button>
+          {canEdit(menuKey) && (
+            <button
+              onClick={() => handleToggleStatus(contextMenu.agent)}
+              disabled={actionLoading[`${contextMenu.agent.id}-toggle`]}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+              title="Changer le statut"
+            >
+              {actionLoading[`${contextMenu.agent.id}-toggle`] ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <UserX size={14} />
+              )}
+              <span>{contextMenu.agent.statut === 'Actif' ? 'Désactiver' : 'Activer'}</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              setEditingAgent(contextMenu.agent);
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-            title="Modifier les informations"
-          >
-            <Edit2 size={14} />
-            <span>Mettre à jour</span>
-          </button>
+          {canEdit(menuKey) && (
+            <button
+              onClick={() => {
+                setEditingAgent(contextMenu.agent);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+              title="Modifier les informations"
+            >
+              <Edit2 size={14} />
+              <span>Mettre à jour</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              handleShowPermissionsModal(contextMenu.agent);
-              setContextMenu(null);
-            }}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
-            title="Gérer les permissions"
-          >
-            <Shield size={14} />
-            <span>Permissions</span>
-          </button>
+          {hasPermission(menuKey, 'gerer_permissions') && (
+            <button
+              onClick={() => {
+                handleShowPermissionsModal(contextMenu.agent);
+                setContextMenu(null);
+              }}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm hover:scale-105"
+              title="Gérer les permissions"
+            >
+              <Shield size={14} />
+              <span>Permissions</span>
+            </button>
+          )}
 
-          <div className="border-t border-gray-200 my-1"></div>
+          {canDelete(menuKey) && <div className="border-t border-gray-200 my-1"></div>}
 
-          <button
-            onClick={() => {
-              handleDeleteAgent(contextMenu.agent);
-              setContextMenu(null);
-            }}
-            disabled={actionLoading[`${contextMenu.agent.ID}-delete`]}
-            className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm rounded-b-lg hover:scale-105"
-            title="Supprimer l'agent"
-          >
-            {actionLoading[`${contextMenu.agent.ID}-delete`] ? (
-              <Loader size={14} className="animate-spin" />
-            ) : (
-              <Trash2 size={14} />
-            )}
-            <span>Supprimer</span>
-          </button>
+          {canDelete(menuKey) && (
+            <button
+              onClick={() => {
+                handleDeleteAgent(contextMenu.agent);
+                setContextMenu(null);
+              }}
+              disabled={actionLoading[`${contextMenu.agent.id}-delete`]}
+              className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2 text-gray-700 transition text-sm rounded-b-lg hover:scale-105"
+              title="Supprimer l'agent"
+            >
+              {actionLoading[`${contextMenu.agent.id}-delete`] ? (
+                <Loader size={14} className="animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+              <span>Supprimer</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1135,8 +957,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
                 <input
                   type="text"
-                  value={editingAgent.Nom}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, Nom: e.target.value })}
+                  value={editingAgent.nom}
+                  onChange={(e) => setEditingAgent({ ...editingAgent, nom: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
               </div>
@@ -1154,8 +976,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
                 <select
-                  value={editingAgent.Role}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, Role: e.target.value })}
+                  value={editingAgent.role}
+                  onChange={(e) => setEditingAgent({ ...editingAgent, role: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                   <option value="Administrateur">Administrateur</option>
@@ -1174,8 +996,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Région</label>
                 <select
-                  value={editingAgent.REGION}
-                  onChange={(e) => setEditingAgent({ ...editingAgent, REGION: e.target.value })}
+                  value={editingAgent.region}
+                  onChange={(e) => setEditingAgent({ ...editingAgent, region: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                   <option value="TOUT">TOUT (Accès à toutes les régions)</option>
@@ -1219,10 +1041,10 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               </button>
               <button
                 onClick={handleSaveEdit}
-                disabled={editingAgent && actionLoading[`${editingAgent.ID}-edit`]}
+                disabled={editingAgent && actionLoading[`${editingAgent.id}-edit`]}
                 className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition text-sm font-medium flex items-center gap-2 disabled:opacity-50"
               >
-                {editingAgent && actionLoading[`${editingAgent.ID}-edit`] && (
+                {editingAgent && actionLoading[`${editingAgent.id}-edit`] && (
                   <Loader size={14} className="animate-spin" />
                 )}
                 Enregistrer
@@ -1248,8 +1070,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nom</label>
                 <input
                   type="text"
-                  value={newAgent.Nom}
-                  onChange={(e) => setNewAgent({ ...newAgent, Nom: e.target.value })}
+                  value={newAgent.nom}
+                  onChange={(e) => setNewAgent({ ...newAgent, nom: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                   placeholder="Entrez le nom"
                 />
@@ -1269,8 +1091,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Rôle</label>
                 <select
-                  value={newAgent.Role}
-                  onChange={(e) => setNewAgent({ ...newAgent, Role: e.target.value })}
+                  value={newAgent.role}
+                  onChange={(e) => setNewAgent({ ...newAgent, role: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                   <option value="Administrateur">Administrateur</option>
@@ -1289,8 +1111,8 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Région</label>
                 <select
-                  value={newAgent.REGION}
-                  onChange={(e) => setNewAgent({ ...newAgent, REGION: e.target.value })}
+                  value={newAgent.region}
+                  onChange={(e) => setNewAgent({ ...newAgent, region: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 >
                   <option value="TOUT">TOUT (Accès à toutes les régions)</option>
@@ -1314,10 +1136,10 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               </button>
               <button
                 onClick={handleAddNewUser}
-                disabled={actionLoading['0-add']}
+                disabled={actionLoading['new-add']}
                 className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition text-sm font-medium flex items-center gap-2 disabled:opacity-50"
               >
-                {actionLoading['0-add'] && (
+                {actionLoading['new-add'] && (
                   <Loader size={14} className="animate-spin" />
                 )}
                 Ajouter
@@ -1333,7 +1155,7 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
           <div className="bg-white rounded-lg shadow-lg w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex justify-between items-center px-6 py-4 border-b sticky top-0 bg-white">
-              <h2 className="text-lg font-bold text-gray-900">Permissions - {permissionsAgent.Nom}</h2>
+              <h2 className="text-lg font-bold text-gray-900">Permissions - {permissionsAgent.nom}</h2>
               <button onClick={() => setPermissionsAgent(null)} className="text-gray-400 hover:text-gray-600">
                 <X size={20} />
               </button>
@@ -1502,10 +1324,10 @@ function UsersPage({ menuTitle = 'Agents' }: UsersPageProps) {
               </button>
               <button
                 onClick={handleSavePermissions}
-                disabled={actionLoading[`${permissionsAgent.ID}-permissions`]}
+                disabled={actionLoading[`${permissionsAgent.id}-permissions`]}
                 className="px-4 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition text-sm font-medium flex items-center gap-2 disabled:opacity-50"
               >
-                {actionLoading[`${permissionsAgent.ID}-permissions`] && (
+                {actionLoading[`${permissionsAgent.id}-permissions`] && (
                   <Loader size={14} className="animate-spin" />
                 )}
                 <Shield size={14} />

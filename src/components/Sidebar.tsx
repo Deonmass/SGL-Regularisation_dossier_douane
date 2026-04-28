@@ -13,11 +13,12 @@ import {
   Truck,
   FileText
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 import bcryptjs from 'bcryptjs';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../services/supabase';
+import { usePermission } from '../hooks/usePermission';
 
 interface SidebarProps {
   activeMenu: string;
@@ -26,6 +27,7 @@ interface SidebarProps {
 
 function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
   const { agent, signOut } = useAuth();
+  const { canView } = usePermission();
   const [expandedMenus, setExpandedMenus] = useState<string[]>([]);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -89,8 +91,32 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
     return expandedMenus.includes(id);
   };
 
+  useEffect(() => {
+    if (activeMenu.startsWith('regularisation')) {
+      setExpandedMenus(prev => (prev.includes('regularisation') ? prev : [...prev, 'regularisation']));
+    }
+
+    if (activeMenu.startsWith('parametres')) {
+      setExpandedMenus(prev => (prev.includes('parametres') ? prev : [...prev, 'parametres']));
+    }
+  }, [activeMenu]);
+
+  const canShowItem = (itemId: string) => {
+    if (itemId === 'dashboard') return canView('dashboard');
+    if (itemId === 'regularisation') {
+      return canView('regularisation') || canView('regularisation-ouest') || canView('regularisation-est') || canView('regularisation-sud');
+    }
+    if (itemId === 'parametres') {
+      return canView('parametres-regions') || canView('parametres-point-entree') || canView('parametres-bureau-douane') || canView('parametres-mode-transport') || canView('parametres-regime-importation') || canView('parametres-client');
+    }
+    if (itemId === 'users') return canView('users');
+    return true;
+  };
+
+  const canShowSubItem = (subItemId: string) => canView(subItemId);
+
   const handleChangePassword = async () => {
-    if (!agent?.ID) {
+    if (!agent?.id) {
       Swal.fire('Erreur', 'Veuillez vous reconnecter', 'error');
       return;
     }
@@ -364,7 +390,7 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         const { data: agentData, error: fetchError } = await supabase
           .from('AGENTS')
           .select('*')
-          .eq('ID', agent.ID)
+          .eq('id', agent.id)
           .single();
 
         if (fetchError || !agentData) {
@@ -374,7 +400,7 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         }
 
         // Vérifier le mot de passe actuel
-        const password = (agentData as any)['mot de passe'];
+        const password = (agentData as any).password;
         const isPasswordValid = await bcryptjs.compare(formValues.currentPassword, password);
 
         if (!isPasswordValid) {
@@ -385,14 +411,14 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         // Hasher le nouveau mot de passe
         const hashedPassword = await bcryptjs.hash(formValues.newPassword, 10);
 
-        // Mettre à jour le mot de passe avec la notation bracket pour la clé avec espaces
+        // Mettre à jour le mot de passe haché dans la colonne password
         const updateData: Record<string, string> = {};
-        updateData['mot de passe'] = hashedPassword;
+        updateData.password = hashedPassword;
         
         const { error: updateError } = await supabase
           .from('AGENTS')
           .update(updateData)
-          .eq('ID', agent.ID);
+          .eq('id', agent.id);
 
         if (updateError) {
           Swal.fire('Erreur', 'Impossible de mettre à jour votre mot de passe', 'error');
@@ -424,9 +450,22 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
         </div>
       </div>
 
+      {/* ORIS Badge */}
+      <div className="px-4 py-0.5 bg-slate-800/50 border-b border-slate-700/50">
+        <div className="flex items-center gap-2">
+          <div className="bg-red-600 px-2.5 py-0.5 rounded-full shadow">
+            <span className="text-white text-[10px] font-bold tracking-wider">ORIS</span>
+          </div>
+          <p className="text-[9px] text-slate-500 leading-tight">
+            Operational Resource<br/>Intelligence System
+          </p>
+          <span className="text-[9px] text-slate-400 font-semibold">| SHIPPING GL</span>
+        </div>
+      </div>
+
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-5 px-3 space-y-1">
-        {navItems.map((item) => {
+        {navItems.filter((item) => canShowItem(item.id)).map((item) => {
           const Icon = item.icon;
           const isItemExpanded = isExpanded(item.id);
 
@@ -470,7 +509,7 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
 
                   {isItemExpanded && (
                     <div className="ml-2 mt-2 space-y-1 animate-in slide-in-from-top-1 duration-300">
-                      {item.subItems.map((subItem) => {
+                      {item.subItems.filter((subItem) => canShowSubItem(subItem.id)).map((subItem) => {
                         const SubIcon = subItem.icon;
 
                         return (
@@ -532,15 +571,15 @@ function Sidebar({ activeMenu, onMenuChange }: SidebarProps) {
               className="w-full flex items-center gap-3 hover:bg-slate-700/40 rounded-lg p-2.5 transition-all duration-300 ease-out group"
             >
               <div className="w-11 h-11 bg-gradient-to-br from-red-500 to-red-600 rounded-lg flex items-center justify-center text-sm font-bold text-white flex-shrink-0 shadow-lg group-hover:shadow-xl transition-shadow duration-300">
-                {(agent.Nom?.[0] || agent.email?.[0] || '?').toUpperCase()}
+                {(agent.nom?.[0] || agent.email?.[0] || '?').toUpperCase()}
               </div>
               <div className="flex-1 min-w-0 text-left">
                 <p className="text-sm font-semibold text-white truncate">
-                  {agent.Nom || 'Utilisateur'}
+                  {agent.nom || 'Utilisateur'}
                 </p>
-                <p className="text-xs text-slate-400 truncate">{agent.Role || 'Agent'}</p>
-                {agent.REGION && (
-                  <p className="text-xs text-slate-500 truncate">{agent.REGION}</p>
+                <p className="text-xs text-slate-400 truncate">{agent.role || 'Agent'}</p>
+                {agent.region && (
+                  <p className="text-xs text-slate-500 truncate">{agent.region}</p>
                 )}
               </div>
               <ChevronDown

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Edit2, Trash2, Plus, Search, RefreshCw, Loader } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
 
 interface PointEntree {
   id: string;
@@ -31,6 +33,7 @@ interface PointEntreePageProps {
 }
 
 function PointEntreePage({ menuTitle = "Point d'entrée" }: PointEntreePageProps) {
+  const { canView, canCreate, canEdit, canDelete } = usePermission();
   const [pointEntrees, setPointEntrees] = useState<PointEntree[]>([]);
   const [filteredPointEntrees, setFilteredPointEntrees] = useState<PointEntree[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +47,11 @@ function PointEntreePage({ menuTitle = "Point d'entrée" }: PointEntreePageProps
   });
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
   const [regions, setRegions] = useState<Region[]>([]);
+  const menuKey = 'parametres-point-entree';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   const fetchRegions = useCallback(async () => {
     try {
@@ -280,13 +288,15 @@ function PointEntreePage({ menuTitle = "Point d'entrée" }: PointEntreePageProps
               <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
               Actualiser
             </button>
-            <button
-              onClick={() => setShowNewPointEntreeModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              <Plus size={20} />
-              Nouveau Point d'entrée
-            </button>
+            {canCreate(menuKey) && (
+              <button
+                onClick={() => setShowNewPointEntreeModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                <Plus size={20} />
+                Nouveau Point d'entrée
+              </button>
+            )}
           </div>
         </div>
 
@@ -325,25 +335,29 @@ function PointEntreePage({ menuTitle = "Point d'entrée" }: PointEntreePageProps
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex justify-center gap-2">
-                          <button
-                            onClick={() => setEditingPointEntree(pointEntree)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                            title="Modifier"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDeletePointEntree(pointEntree)}
-                            disabled={actionLoading[`${pointEntree.id}-delete`]}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                            title="Supprimer"
-                          >
-                            {actionLoading[`${pointEntree.id}-delete`] ? (
-                              <Loader size={18} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={18} />
-                            )}
-                          </button>
+                          {canEdit(menuKey) && (
+                            <button
+                              onClick={() => setEditingPointEntree(pointEntree)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              title="Modifier"
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                          )}
+                          {canDelete(menuKey) && (
+                            <button
+                              onClick={() => handleDeletePointEntree(pointEntree)}
+                              disabled={actionLoading[`${pointEntree.id}-delete`]}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                              title="Supprimer"
+                            >
+                              {actionLoading[`${pointEntree.id}-delete`] ? (
+                                <Loader size={18} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={18} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

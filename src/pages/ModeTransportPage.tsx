@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Edit2, Trash2, Plus, Search, RefreshCw, Loader } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
 
 interface ModeTransport {
   id: string;
@@ -21,6 +23,7 @@ interface ModeTransportPageProps {
 }
 
 function ModeTransportPage({ menuTitle = 'Modes de Transport' }: ModeTransportPageProps) {
+  const { canView, canCreate, canEdit, canDelete } = usePermission();
   const [modesTransport, setModesTransport] = useState<ModeTransport[]>([]);
   const [filteredModesTransport, setFilteredModesTransport] = useState<ModeTransport[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -32,6 +35,11 @@ function ModeTransportPage({ menuTitle = 'Modes de Transport' }: ModeTransportPa
     code: ''
   });
   const [actionLoading, setActionLoading] = useState<{ [key: string]: boolean }>({});
+  const menuKey = 'parametres-mode-transport';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   const fetchModesTransport = useCallback(async () => {
     try {
@@ -240,13 +248,15 @@ function ModeTransportPage({ menuTitle = 'Modes de Transport' }: ModeTransportPa
               <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
               Actualiser
             </button>
-            <button
-              onClick={() => setShowNewModeTransportModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-            >
-              <Plus size={20} />
-              Nouveau Mode de Transport
-            </button>
+            {canCreate(menuKey) && (
+              <button
+                onClick={() => setShowNewModeTransportModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              >
+                <Plus size={20} />
+                Nouveau Mode de Transport
+              </button>
+            )}
           </div>
         </div>
 
@@ -283,25 +293,29 @@ function ModeTransportPage({ menuTitle = 'Modes de Transport' }: ModeTransportPa
                       </td>
                       <td className="px-4 py-3 text-center">
                         <div className="flex justify-center gap-2">
-                          <button
-                            onClick={() => setEditingModeTransport(modeTransport)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                            title="Modifier"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteModeTransport(modeTransport)}
-                            disabled={actionLoading[`${modeTransport.id}-delete`]}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                            title="Supprimer"
-                          >
-                            {actionLoading[`${modeTransport.id}-delete`] ? (
-                              <Loader size={18} className="animate-spin" />
-                            ) : (
-                              <Trash2 size={18} />
-                            )}
-                          </button>
+                          {canEdit(menuKey) && (
+                            <button
+                              onClick={() => setEditingModeTransport(modeTransport)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                              title="Modifier"
+                            >
+                              <Edit2 size={18} />
+                            </button>
+                          )}
+                          {canDelete(menuKey) && (
+                            <button
+                              onClick={() => handleDeleteModeTransport(modeTransport)}
+                              disabled={actionLoading[`${modeTransport.id}-delete`]}
+                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                              title="Supprimer"
+                            >
+                              {actionLoading[`${modeTransport.id}-delete`] ? (
+                                <Loader size={18} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={18} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

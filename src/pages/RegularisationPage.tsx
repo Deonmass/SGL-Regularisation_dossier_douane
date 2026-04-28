@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Save, X, Loader, RefreshCw } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { supabase } from '../services/supabase';
+import AccessDenied from '../components/AccessDenied';
+import { usePermission } from '../hooks/usePermission';
 
 interface Region {
   id: string;
@@ -62,6 +64,7 @@ interface RegularisationPageProps {
 }
 
 function RegularisationPage({ menuTitle = 'Nouveau Dossier' }: RegularisationPageProps) {
+  const { canView, canCreate } = usePermission();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [regions, setRegions] = useState<Region[]>([]);
@@ -84,6 +87,11 @@ function RegularisationPage({ menuTitle = 'Nouveau Dossier' }: RegularisationPag
     mode_shipment: '',
     reference_shipment: ''
   });
+  const menuKey = 'regularisation';
+
+  if (!canView(menuKey)) {
+    return <AccessDenied />;
+  }
 
   const fetchRegions = useCallback(async () => {
     try {
@@ -513,18 +521,20 @@ function RegularisationPage({ menuTitle = 'Nouveau Dossier' }: RegularisationPag
                   <X size={20} />
                   Annuler
                 </button>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-                >
-                  {saving ? (
-                    <Loader size={20} className="animate-spin" />
-                  ) : (
-                    <Save size={20} />
-                  )}
-                  {saving ? 'Enregistrement...' : 'Enregistrer'}
-                </button>
+                {canCreate(menuKey) && (
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <Loader size={20} className="animate-spin" />
+                    ) : (
+                      <Save size={20} />
+                    )}
+                    {saving ? 'Enregistrement...' : 'Enregistrer'}
+                  </button>
+                )}
               </div>
             </div>
           </div>
